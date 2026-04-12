@@ -1,0 +1,24 @@
+{
+  "name": "InboxWeave",
+  "short_name": "InboxWeave",
+  "description": "Multi-org AI-assisted messaging for WhatsApp, Instagram, and Messenger.",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
