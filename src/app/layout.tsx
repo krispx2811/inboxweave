@@ -92,8 +92,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
         {process.env.NEXT_PUBLIC_ADSENSE_ID && (
           <script
             async
