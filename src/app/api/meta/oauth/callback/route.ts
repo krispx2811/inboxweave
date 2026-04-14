@@ -7,38 +7,42 @@ export const runtime = "nodejs";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-/**
- * Facebook Login redirect target. Exchanges the short-lived `code` for a
- * user access token, lists the pages they manage, and upserts one channel
- * row per page (Messenger). If a page has a linked Instagram Business
- * account, also upsert an IG channel row pointing at that IG account id.
- */
+function redirectBack(req: NextRequest, orgId: string, status: string, detail?: string) {
+  const url = new URL(`/app/${orgId}/channels`, req.url);
+  url.searchParams.set("fb", status);
+  if (detail) url.searchParams.set("msg", detail);
+  return NextResponse.redirect(url);
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
+  const error = searchParams.get("error");
+  const errorDesc = searchParams.get("error_description");
+
+  if (error) {
+    return new NextResponse(`Facebook returned error: ${error} — ${errorDesc}`, { status: 400 });
+  }
   if (!code || !state) return NextResponse.redirect(new URL("/", req.url));
 
   let orgId: string;
   try {
-    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
-      orgId: string;
-    };
+    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as { orgId: string };
     orgId = decoded.orgId;
   } catch {
     return new NextResponse("bad state", { status: 400 });
   }
 
-  // Guard membership.
   await requireOrgMember(orgId);
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const redirectUri = `${appUrl}/api/meta/oauth/callback`;
   const appId = process.env.META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
-  if (!appId || !appSecret) return new NextResponse("server not configured", { status: 500 });
+  if (!appId || !appSecret) return new NextResponse("server not configured — set META_APP_ID and META_APP_SECRET", { status: 500 });
 
-  // 1. Code → short-lived user token.
+  // 1. Code → user access token.
   const tokenRes = await fetch(
     `${GRAPH}/oauth/access_token?` +
       new URLSearchParams({
@@ -50,65 +54,87 @@ export async function GET(req: NextRequest) {
   );
   const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: { message: string } };
   if (!tokenRes.ok || !tokenJson.access_token) {
-    return new NextResponse(`oauth failed: ${tokenJson.error?.message ?? "unknown"}`, { status: 400 });
+    console.error("[meta oauth] token exchange failed", tokenJson);
+    return redirectBack(req, orgId, "error", tokenJson.error?.message ?? "token exchange failed");
   }
 
-  // 2. List pages + per-page access tokens.
+  // 2. List pages.
   const pagesRes = await fetch(
     `${GRAPH}/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${encodeURIComponent(
       tokenJson.access_token,
     )}`,
   );
   const pagesJson = (await pagesRes.json()) as {
-    data?: Array<{
-      id: string;
-      name: string;
-      access_token: string;
-      instagram_business_account?: { id: string };
-    }>;
+    data?: Array<{ id: string; name: string; access_token: string; instagram_business_account?: { id: string } }>;
+    error?: { message: string };
   };
+  if (pagesJson.error) {
+    console.error("[meta oauth] pages fetch failed", pagesJson.error);
+    return redirectBack(req, orgId, "error", pagesJson.error.message);
+  }
   const pages = pagesJson.data ?? [];
 
+  if (pages.length === 0) {
+    return redirectBack(req, orgId, "no_pages");
+  }
+
   const admin = createSupabaseAdminClient();
+  let connectedCount = 0;
+  let igCount = 0;
 
   for (const page of pages) {
-    const encrypted = bufferToPgBytea(encryptSecret(page.access_token));
-    // Messenger channel for this page.
-    await admin.from("channels").upsert(
-      {
-        org_id: orgId,
-        platform: "messenger",
-        external_id: page.id,
-        display_name: page.name,
-        access_token_ciphertext: encrypted,
-        status: "active",
-      },
-      { onConflict: "external_id" },
-    );
-    // Instagram channel (uses the same page access token).
-    if (page.instagram_business_account?.id) {
-      await admin.from("channels").upsert(
+    try {
+      const encrypted = bufferToPgBytea(encryptSecret(page.access_token));
+      const { error: upErr } = await admin.from("channels").upsert(
         {
           org_id: orgId,
-          platform: "instagram",
-          external_id: page.instagram_business_account.id,
-          display_name: `${page.name} (Instagram)`,
+          platform: "messenger",
+          external_id: page.id,
+          display_name: page.name,
           access_token_ciphertext: encrypted,
           status: "active",
         },
         { onConflict: "external_id" },
       );
+      if (upErr) {
+        console.error("[meta oauth] channel upsert failed", upErr);
+        continue;
+      }
+      connectedCount++;
+
+      if (page.instagram_business_account?.id) {
+        await admin.from("channels").upsert(
+          {
+            org_id: orgId,
+            platform: "instagram",
+            external_id: page.instagram_business_account.id,
+            display_name: `${page.name} (Instagram)`,
+            access_token_ciphertext: encrypted,
+            status: "active",
+          },
+          { onConflict: "external_id" },
+        );
+        igCount++;
+      }
+
+      await fetch(`${GRAPH}/${page.id}/subscribed_apps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscribed_fields: ["messages", "messaging_postbacks"],
+          access_token: page.access_token,
+        }),
+      }).catch((err) => console.error("[meta oauth] subscribe failed", err));
+    } catch (err) {
+      console.error("[meta oauth] unexpected error for page", page.id, err);
     }
-    // Subscribe the page to the app's webhooks.
-    await fetch(`${GRAPH}/${page.id}/subscribed_apps`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscribed_fields: ["messages", "messaging_postbacks"],
-        access_token: page.access_token,
-      }),
-    }).catch((err) => console.error("[meta oauth] subscribe failed", err));
   }
 
-  return NextResponse.redirect(new URL(`/app/${orgId}/channels`, req.url));
+  await admin.from("audit_logs").insert({
+    org_id: orgId,
+    action: "facebook_connected",
+    payload: { pages: connectedCount, instagram: igCount },
+  }).then(() => {});
+
+  return redirectBack(req, orgId, "success", `${connectedCount} page${connectedCount === 1 ? "" : "s"}, ${igCount} Instagram`);
 }

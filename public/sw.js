@@ -34,8 +34,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "InboxWeave";
   const options = {
     body: data.body || "You have a new message",
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
+    icon: "/icon.svg",
+    badge: "/icon.svg",
     data: { url: data.url || "/home" },
   };
   event.waitUntil(self.registration.showNotification(title, options));

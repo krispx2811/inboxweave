@@ -24,10 +24,13 @@ function platformIcon(platform: string) {
 
 export default async function ChannelsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgId: string }>;
+  searchParams: Promise<{ fb?: string; msg?: string }>;
 }) {
   const { orgId } = await params;
+  const { fb, msg } = await searchParams;
   const admin = createSupabaseAdminClient();
   const { data: channels } = await admin
     .from("channels")
@@ -54,6 +57,23 @@ export default async function ChannelsPage({
         <h1>Channels</h1>
         <p>Connect your messaging platforms</p>
       </div>
+
+      {fb === "success" && (
+        <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <strong>Connected successfully.</strong> {msg ? `Linked ${msg}.` : ""}
+        </div>
+      )}
+      {fb === "no_pages" && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>No Facebook Pages found.</strong> You need to create a Facebook Page first (or grant AI Inbox permission to manage one).
+          Then retry the &ldquo;Connect with Facebook&rdquo; button.
+        </div>
+      )}
+      {fb === "error" && (
+        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong>Connection failed.</strong> {msg ?? "Unknown error."} Try again or check the server logs.
+        </div>
+      )}
 
       {/* ── WhatsApp ────────────────────────────────────────── */}
       <section className="card mb-4">
