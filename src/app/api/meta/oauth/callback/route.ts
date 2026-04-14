@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   // Guard membership.
   await requireOrgMember(orgId);
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const redirectUri = `${appUrl}/api/meta/oauth/callback`;
   const appId = process.env.META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;

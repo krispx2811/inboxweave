@@ -13,7 +13,7 @@ export default async function SmsChannelPage({ params }: { params: Promise<{ org
     .maybeSingle();
 
   const configured = Boolean(settings?.twilio_phone_number);
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">

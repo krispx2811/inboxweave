@@ -35,7 +35,7 @@ export default async function ChannelsPage({
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const fbAppId = process.env.META_APP_ID;
   const oauthState = Buffer.from(JSON.stringify({ orgId })).toString("base64url");
   const fbLoginUrl =

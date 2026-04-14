@@ -6,55 +6,78 @@ interface TooltipProps {
   id: string;
   children: React.ReactNode;
   message: string;
-  position?: "top" | "bottom" | "left" | "right";
+  /** Priority — lower numbers show first. Only one tooltip shows at a time. */
+  priority?: number;
 }
 
-/**
- * Pulsing tooltip shown once per user (tracked in localStorage).
- * Dismisses on click. Use `id` to make each tooltip unique.
- */
-export function OnboardingTooltip({ id, children, message, position = "bottom" }: TooltipProps) {
-  const [show, setShow] = useState(false);
+// Global store for active tooltip coordination.
+let globalActiveTooltip: string | null = null;
+const subscribers = new Set<() => void>();
+
+function notify() {
+  for (const s of subscribers) s();
+}
+
+export function OnboardingTooltip({ id, children, message, priority = 0 }: TooltipProps) {
+  const [, force] = useState(0);
+  const [dismissed, setDismissed] = useState(true); // default true to avoid flash
 
   useEffect(() => {
     const key = `tooltip_dismissed_${id}`;
-    if (!localStorage.getItem(key)) setShow(true);
-  }, [id]);
+    const isDismissed = Boolean(localStorage.getItem(key));
+    setDismissed(isDismissed);
 
-  function dismiss() {
-    setShow(false);
+    // Claim active slot if this tooltip has highest priority among un-dismissed.
+    if (!isDismissed) {
+      const current = globalActiveTooltip;
+      if (!current) {
+        globalActiveTooltip = `${priority}-${id}`;
+        notify();
+      } else {
+        const [curPri] = current.split("-");
+        if (priority < Number(curPri)) {
+          globalActiveTooltip = `${priority}-${id}`;
+          notify();
+        }
+      }
+    }
+
+    const sub = () => force((n) => n + 1);
+    subscribers.add(sub);
+    return () => { subscribers.delete(sub); };
+  }, [id, priority]);
+
+  function dismiss(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
     localStorage.setItem(`tooltip_dismissed_${id}`, "1");
+    setDismissed(true);
+    globalActiveTooltip = null;
+    notify();
   }
 
-  const posClasses: Record<string, string> = {
-    top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
-    bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
-    left: "right-full top-1/2 -translate-y-1/2 mr-2",
-    right: "left-full top-1/2 -translate-y-1/2 ml-2",
-  };
+  const isActive = !dismissed && globalActiveTooltip === `${priority}-${id}`;
+
+  if (!isActive) return <>{children}</>;
 
   return (
-    <div className="relative inline-block">
+    <div className="relative">
       {children}
-      {show && (
-        <>
-          {/* Pulse ring */}
-          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-indigo-500" />
-          </span>
-          {/* Tooltip */}
-          <div
-            className={`absolute z-50 ${posClasses[position]} animate-in`}
-            onClick={dismiss}
-          >
-            <div className="rounded-xl bg-slate-900 px-4 py-2.5 text-xs text-white shadow-xl max-w-[220px] cursor-pointer">
-              {message}
-              <div className="mt-1 text-[10px] text-slate-400">Click to dismiss</div>
-            </div>
-          </div>
-        </>
-      )}
+      <span className="absolute top-1/2 right-2 -translate-y-1/2 flex h-2 w-2 z-10 pointer-events-none">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
+      </span>
+      <div
+        className="absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50"
+        onClick={dismiss}
+        role="button"
+      >
+        <div className="relative rounded-lg bg-slate-900 px-3 py-2 text-[11px] text-white shadow-lg w-[180px] cursor-pointer leading-relaxed">
+          {/* Arrow */}
+          <span className="absolute top-1/2 -left-1 -translate-y-1/2 h-2 w-2 rotate-45 bg-slate-900" />
+          {message}
+        </div>
+      </div>
     </div>
   );
 }
