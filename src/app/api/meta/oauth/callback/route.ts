@@ -8,7 +8,11 @@ export const runtime = "nodejs";
 const GRAPH = "https://graph.facebook.com/v21.0";
 
 function redirectBack(req: NextRequest, orgId: string, status: string, detail?: string) {
-  const url = new URL(`/app/${orgId}/channels`, req.url);
+  // Prefer the configured public app URL so we always land on the primary
+  // domain (e.g. inboxweave.com) even when the request came in via a Netlify
+  // preview URL.
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+  const url = new URL(`/app/${orgId}/channels`, base);
   url.searchParams.set("fb", status);
   if (detail) url.searchParams.set("msg", detail);
   return NextResponse.redirect(url);
