@@ -103,6 +103,40 @@ export async function sendOutbound(params: {
 }
 
 /**
+ * Fire a typing indicator using channel data the caller already has. No
+ * DB lookups — intended to run in parallel with other work the moment an
+ * inbound message arrives, so the bubble appears instantly.
+ */
+export async function sendTypingIndicatorFast(params: {
+  platform: ChannelPlatform | string;
+  accessTokenCiphertext: string | Buffer | Uint8Array;
+  contactExternalId: string;
+}): Promise<void> {
+  if (params.platform !== "instagram" && params.platform !== "messenger") return;
+  let token: string;
+  try {
+    token = decryptSecret(pgByteaToBuffer(params.accessTokenCiphertext as string | Buffer | Uint8Array));
+  } catch {
+    return;
+  }
+  if (params.platform === "instagram") {
+    const isIgBusinessToken = token.startsWith("IGA");
+    await sendInstagramSenderAction({
+      pageAccessToken: token,
+      recipientId: params.contactExternalId,
+      action: "typing_on",
+      useFacebookGraph: !isIgBusinessToken,
+    });
+    return;
+  }
+  await sendMessengerSenderAction({
+    pageAccessToken: token,
+    recipientPsid: params.contactExternalId,
+    action: "typing_on",
+  });
+}
+
+/**
  * Show a "typing..." bubble on the conversation's channel (Instagram and
  * Messenger only — WhatsApp and SMS don't support this). All failures are
  * swallowed; this is a cosmetic enhancement, not critical path.

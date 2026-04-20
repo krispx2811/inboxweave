@@ -5,7 +5,7 @@ import { generateReply, detectLanguage } from "@/lib/ai/openai";
 import { retrieveContext } from "@/lib/ai/rag";
 import { analyzeSentiment } from "@/lib/ai/analysis";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
-import { sendOutbound, sendTypingIndicator } from "./router";
+import { sendOutbound, sendTypingIndicatorFast } from "./router";
 
 export interface NormalizedInbound {
   platform: ChannelPlatform;
@@ -43,7 +43,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // 1. Resolve channel → org.
   const { data: channel, error: chErr } = await admin
     .from("channels")
-    .select("id, org_id, platform, status")
+    .select("id, org_id, platform, status, access_token_ciphertext")
     .eq("platform", msg.platform)
     .eq("external_id", msg.channelExternalId)
     .maybeSingle();
@@ -54,6 +54,21 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   }
 
   const orgId = channel.org_id as string;
+
+  // Fire the typing bubble IMMEDIATELY, in parallel with all DB writes,
+  // so the customer sees "typing..." the instant their message is received.
+  // No await — it's cosmetic and must not block the critical path.
+  if (
+    channel.status === "active" &&
+    (channel.platform === "instagram" || channel.platform === "messenger")
+  ) {
+    sendTypingIndicatorFast({
+      platform: channel.platform as string,
+      accessTokenCiphertext: channel.access_token_ciphertext as string,
+      contactExternalId: msg.contactExternalId,
+    }).catch(() => {});
+  }
+
   // Note: we process the message even if channel.status !== "active" (e.g. the
   // token is invalidated). Persisting the inbound so agents can see it in the
   // inbox is more important than the auto-reply; AI sends are gated below.
@@ -213,11 +228,6 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
         content: m.content as string,
       }));
-
-    // Show the "typing…" bubble to the contact while the AI thinks. Fire
-    // and forget — if this fails the reply still goes through. IG/FB auto-
-    // clear typing on the next outbound message or after ~20s idle.
-    sendTypingIndicator(convo.id as string).catch(() => {});
 
     let step = "retrieveContext";
     let reply: string;
