@@ -39,7 +39,14 @@ export default async function ChannelsPage({
     .order("created_at", { ascending: false });
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
-  const fbAppId = process.env.META_APP_ID;
+
+  // Prefer per-org Meta app; fall back to global env.
+  const { data: metaSettings } = await admin
+    .from("meta_settings")
+    .select("app_id")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  const fbAppId = (metaSettings?.app_id as string | undefined) ?? process.env.META_APP_ID;
   const oauthState = Buffer.from(JSON.stringify({ orgId })).toString("base64url");
   const fbLoginUrl =
     fbAppId &&
@@ -129,8 +136,8 @@ export default async function ChannelsPage({
             <IconFacebook className="h-4 w-4" /> Connect with Facebook
           </a>
         ) : (
-          <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            Set <code className="font-mono text-xs">META_APP_ID</code> in your environment to enable this.
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+            <strong>Meta app not configured.</strong> <a href={`/app/${orgId}/settings/meta`} className="underline font-semibold">Add your Meta app credentials</a> first, then come back here to connect your pages.
           </div>
         )}
       </section>

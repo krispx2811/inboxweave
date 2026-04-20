@@ -1,7 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { verifyMetaSignature } from "@/lib/channels/signature";
+import { verifyMetaSignatureWithSecret } from "@/lib/channels/signature";
 import { parseMessengerWebhook } from "@/lib/channels/messenger";
 import { handleInbound } from "@/lib/channels/inbound";
+import {
+  findOrgByChannelExternalId,
+  findOrgByVerifyToken,
+  getMetaCredentials,
+} from "@/lib/channels/meta-settings";
 
 export const runtime = "nodejs";
 
@@ -10,24 +15,44 @@ export async function GET(req: NextRequest) {
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
-  if (mode === "subscribe" && token === process.env.META_WEBHOOK_VERIFY_TOKEN && challenge) {
+  if (mode !== "subscribe" || !token || !challenge) {
+    return new NextResponse("forbidden", { status: 403 });
+  }
+  if (token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
     return new NextResponse(challenge, { status: 200 });
   }
+  const orgId = await findOrgByVerifyToken(token);
+  if (orgId) return new NextResponse(challenge, { status: 200 });
   return new NextResponse("forbidden", { status: 403 });
 }
 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
-  if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"))) {
-    return new NextResponse("invalid signature", { status: 401 });
-  }
+  const sig = req.headers.get("x-hub-signature-256");
+
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
     return new NextResponse("bad json", { status: 400 });
   }
+
   const messages = parseMessengerWebhook(body);
+  if (messages.length === 0) return NextResponse.json({ ok: true });
+
+  const firstPageId = messages[0]!.pageId;
+  const orgId = await findOrgByChannelExternalId(firstPageId);
+
+  let appSecret = process.env.META_APP_SECRET;
+  if (orgId) {
+    const creds = await getMetaCredentials(orgId);
+    if (creds) appSecret = creds.appSecret;
+  }
+  if (!appSecret) return new NextResponse("not configured", { status: 500 });
+  if (!verifyMetaSignatureWithSecret(raw, sig, appSecret)) {
+    return new NextResponse("invalid signature", { status: 401 });
+  }
+
   for (const m of messages) {
     await handleInbound({
       platform: "messenger",

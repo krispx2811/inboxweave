@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
+import { getMetaCredentials } from "@/lib/channels/meta-settings";
 
 export const runtime = "nodejs";
 
@@ -42,9 +43,15 @@ export async function GET(req: NextRequest) {
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const redirectUri = `${appUrl}/api/meta/oauth/callback`;
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
-  if (!appId || !appSecret) return new NextResponse("server not configured — set META_APP_ID and META_APP_SECRET", { status: 500 });
+
+  // Prefer per-org Meta credentials; fall back to global env for backwards
+  // compatibility with single-tenant deployments.
+  const orgCreds = await getMetaCredentials(orgId);
+  const appId = orgCreds?.appId ?? process.env.META_APP_ID;
+  const appSecret = orgCreds?.appSecret ?? process.env.META_APP_SECRET;
+  if (!appId || !appSecret) {
+    return redirectBack(req, orgId, "error", "Meta app credentials not configured. Go to Settings → Meta App.");
+  }
 
   // 1. Code → user access token.
   const tokenRes = await fetch(

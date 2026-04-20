@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { updateAiSettings, updateOpenAIKey } from "./actions";
-import { IconSparkle, IconShield } from "@/components/icons";
+import Link from "next/link";
+import { IconSparkle, IconShield, IconFacebook, IconGlobe } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +126,27 @@ export default async function SettingsPage({
           <button className="btn" type="submit">Save key</button>
         </form>
       </section>
+
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Link href={`/app/${orgId}/settings/meta`} className="card-hover flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+            <IconFacebook className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold">Meta App</div>
+            <div className="text-xs text-slate-500">WhatsApp, Instagram, Messenger credentials</div>
+          </div>
+        </Link>
+        <Link href={`/app/${orgId}/settings/webhooks`} className="card-hover flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+            <IconGlobe className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold">Webhook Events</div>
+            <div className="text-xs text-slate-500">Push events to external systems</div>
+          </div>
+        </Link>
+      </div>
     </main>
   );
 }

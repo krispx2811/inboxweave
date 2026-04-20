@@ -5,7 +5,7 @@ import { LogoFull } from "@/components/Logo";
 
 export const metadata: Metadata = {
   title: "Setup Guides — Connect WhatsApp, Instagram, Messenger, SMS & Email",
-  description: "Step-by-step tutorials for connecting WhatsApp Business Cloud API, Instagram DMs, Facebook Messenger, Twilio SMS, and Email to InboxWeave. Free AI-powered customer messaging.",
+  description: "Step-by-step tutorials for connecting your own Meta app, WhatsApp, Instagram, Messenger, Twilio SMS, and Email to InboxWeave.",
   alternates: { canonical: "/guides" },
 };
 
@@ -32,9 +32,67 @@ export default function GuidesPage() {
         <div className="mb-12 text-center">
           <h1 className="text-3xl font-extrabold tracking-tight">Setup Guides</h1>
           <p className="mt-3 text-slate-500 max-w-lg mx-auto">
-            Step-by-step instructions to connect each messaging channel to InboxWeave. Most take under 10 minutes.
+            Step-by-step instructions to connect your channels. Each org brings their own Meta
+            developer app (no business verification required).
           </p>
         </div>
+
+        {/* ── Step 0: Create a Meta app ──────────────────────── */}
+        <section id="meta-app" className="mb-16">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-100">
+              <IconFacebook className="h-6 w-6 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Create your Meta developer app</h2>
+              <p className="text-sm text-slate-500">Do this once, then you can use it for WhatsApp, Instagram, and Messenger.</p>
+            </div>
+          </div>
+
+          <div className="card space-y-5">
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+              <strong>No business verification needed.</strong> We use the <strong>Consumer</strong> app type which works immediately for testing and development.
+            </div>
+
+            <Step n={1}>
+              Go to <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">developers.facebook.com/apps</a> and sign in with your Facebook account.
+            </Step>
+
+            <Step n={2}>
+              Click <strong>Create App</strong> &rarr; choose <strong>Other</strong> as the use case &rarr; pick <strong>Consumer</strong> as the app type &rarr; click Next.
+            </Step>
+
+            <Step n={3}>
+              Give it a name (e.g. &ldquo;My InboxWeave&rdquo;) &rarr; enter your email &rarr; click <strong>Create App</strong>. You might need to enter your Facebook password.
+            </Step>
+
+            <Step n={4}>
+              From your app dashboard, click <strong>App Settings &rarr; Basic</strong> in the left sidebar. Copy these two values:
+              <ul className="mt-2 ml-4 space-y-1 list-disc">
+                <li><strong>App ID</strong> (visible at the top)</li>
+                <li><strong>App Secret</strong> (click &ldquo;Show&rdquo; &rarr; enter password)</li>
+              </ul>
+            </Step>
+
+            <Step n={5}>
+              In InboxWeave, open <strong>Settings &rarr; Meta App</strong> and paste:
+              <ul className="mt-2 ml-4 space-y-1 list-disc">
+                <li>Your <strong>App ID</strong></li>
+                <li>Your <strong>App Secret</strong></li>
+                <li>A <strong>Verify Token</strong> — any random string you make up (you&apos;ll use it again below)</li>
+              </ul>
+              Click Save.
+            </Step>
+
+            <Step n={6}>
+              Back on the Meta app dashboard &rarr; scroll down to <strong>App Domains</strong> &rarr; add your InboxWeave domain (e.g. <code className="text-xs bg-slate-100 rounded px-1">inboxweave.com</code>). Click Save Changes at the bottom.
+            </Step>
+
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
+              Now you&apos;re ready to add products (WhatsApp, Messenger, Instagram) to the app. Follow whichever channel(s) you need below.
+            </div>
+          </div>
+        </section>
 
         {/* ── WhatsApp ─────────────────────────────────────────── */}
         <section id="whatsapp" className="mb-16">
@@ -43,53 +101,42 @@ export default function GuidesPage() {
               <IconWhatsApp className="h-6 w-6 text-emerald-600" />
             </div>
             <div>
-              <h2 className="text-xl font-bold">WhatsApp Business Cloud API</h2>
-              <p className="text-sm text-slate-500">Free tier available &middot; ~15 minutes</p>
+              <h2 className="text-xl font-bold">WhatsApp Cloud API</h2>
+              <p className="text-sm text-slate-500">Free tier available &middot; ~10 minutes</p>
             </div>
           </div>
 
           <div className="card space-y-5">
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-              <strong>Prerequisites:</strong> A Meta Business account and a phone number that isn&apos;t already registered with WhatsApp.
-            </div>
-
             <Step n={1}>
-              <strong>Create a Meta Business account.</strong> Go to{" "}
-              <span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">business.facebook.com</span> and sign up or log in. Complete business verification if prompted.
+              On your Meta app dashboard, click <strong>Add Product</strong> on the left sidebar &rarr; find <strong>WhatsApp</strong> &rarr; click <strong>Set Up</strong>. Select or create a Meta Business account.
             </Step>
 
             <Step n={2}>
-              <strong>Create a Meta App.</strong> Go to{" "}
-              <span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">developers.facebook.com/apps</span> &rarr; <strong>Create App</strong> &rarr; select <strong>Business</strong> type &rarr; give it a name (e.g. &ldquo;InboxWeave&rdquo;).
+              In the WhatsApp section &rarr; <strong>API Setup</strong>, you&apos;ll get a test phone number. Copy the <strong>Phone number ID</strong> (numeric string).
             </Step>
 
             <Step n={3}>
-              <strong>Add WhatsApp product.</strong> In your app dashboard, click <strong>Add Product</strong> &rarr; find <strong>WhatsApp</strong> &rarr; click <strong>Set Up</strong>. Select your Meta Business account when prompted.
+              On the same page, copy the <strong>Temporary access token</strong> (it expires in 24 hours but works for testing).
             </Step>
 
             <Step n={4}>
-              <strong>Get your Phone Number ID.</strong> In the WhatsApp section &rarr; <strong>API Setup</strong>, you&apos;ll see a test phone number. Copy the <strong>Phone number ID</strong> (a numeric string like <code className="text-xs bg-slate-100 rounded px-1">123456789012345</code>).
-            </Step>
-
-            <Step n={5}>
-              <strong>Generate a permanent access token.</strong> Go to <strong>Business Settings</strong> &rarr; <strong>System Users</strong> &rarr; create a system user with <strong>Admin</strong> role &rarr; click <strong>Generate Token</strong> &rarr; select your app &rarr; check the <code className="text-xs bg-slate-100 rounded px-1">whatsapp_business_messaging</code> and <code className="text-xs bg-slate-100 rounded px-1">whatsapp_business_management</code> permissions &rarr; generate. <strong>Copy the token</strong> &mdash; you won&apos;t see it again.
-            </Step>
-
-            <Step n={6}>
-              <strong>Configure the webhook.</strong> In your app &rarr; WhatsApp &rarr; <strong>Configuration</strong>:
+              Still in the WhatsApp section &rarr; <strong>Configuration</strong> &rarr; set webhook:
               <ul className="mt-2 ml-4 space-y-1 list-disc">
-                <li>Callback URL: <code className="text-xs bg-slate-100 rounded px-1">https://your-domain.com/api/webhooks/whatsapp</code></li>
-                <li>Verify token: the value of <code className="text-xs bg-slate-100 rounded px-1">META_WEBHOOK_VERIFY_TOKEN</code> in your env</li>
+                <li>Callback URL: <code className="text-xs bg-slate-100 rounded px-1">https://inboxweave.com/api/webhooks/whatsapp</code></li>
+                <li>Verify token: use the <strong>same verify token</strong> you saved in InboxWeave&apos;s Meta App settings</li>
                 <li>Subscribe to: <strong>messages</strong></li>
               </ul>
             </Step>
 
-            <Step n={7}>
-              <strong>Paste into InboxWeave.</strong> Go to your org &rarr; <strong>Channels</strong> &rarr; enter the display name, Phone Number ID, and access token. Click <strong>Connect WhatsApp</strong>. Done!
+            <Step n={5}>
+              In InboxWeave &rarr; <strong>Channels</strong> &rarr; fill in the WhatsApp form with display name, Phone Number ID, and the access token. Click <strong>Connect WhatsApp</strong>.
             </Step>
 
             <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
-              <strong>Test it:</strong> Send a WhatsApp message to your business number. It should appear in your InboxWeave within seconds and get an AI reply.
+              <strong>Test it:</strong> Add your own phone to &ldquo;To&rdquo; recipients in the API Setup page first (Meta requires this for testing), then send a WhatsApp message to the test number. You&apos;ll get an AI reply.
+            </div>
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+              <strong>For permanent tokens:</strong> Once you&apos;ve tested, create a System User in Business Settings &rarr; generate a permanent token with <code className="text-xs">whatsapp_business_messaging</code> permission &rarr; replace the temporary token in InboxWeave.
             </div>
           </div>
         </section>
@@ -107,50 +154,48 @@ export default function GuidesPage() {
             </div>
             <div>
               <h2 className="text-xl font-bold">Instagram DMs & Facebook Messenger</h2>
-              <p className="text-sm text-slate-500">Same setup for both &middot; ~10 minutes</p>
+              <p className="text-sm text-slate-500">~10 minutes &middot; OAuth-based connection</p>
             </div>
           </div>
 
           <div className="card space-y-5">
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-              <strong>Prerequisites:</strong> A Facebook Page (for Messenger) and/or an Instagram Business account linked to that Page (for Instagram DMs). A Meta developer app (same one from WhatsApp works).
+              <strong>You need:</strong> A Facebook Page (create one at <a href="https://facebook.com/pages/create" target="_blank" rel="noopener noreferrer" className="underline">facebook.com/pages/create</a>). For Instagram DMs, the Page must be linked to an Instagram Business account.
             </div>
 
             <Step n={1}>
-              <strong>Set env variables.</strong> Make sure <code className="text-xs bg-slate-100 rounded px-1">META_APP_ID</code> and <code className="text-xs bg-slate-100 rounded px-1">META_APP_SECRET</code> are set in your <code className="text-xs bg-slate-100 rounded px-1">.env</code> file. You find these in your Meta app&apos;s <strong>Settings &rarr; Basic</strong>.
+              On your Meta app dashboard &rarr; <strong>Add Product</strong> &rarr; add <strong>Facebook Login for Business</strong> (or the classic &ldquo;Facebook Login&rdquo;).
             </Step>
 
             <Step n={2}>
-              <strong>Add Facebook Login product.</strong> In your Meta app dashboard &rarr; <strong>Add Product</strong> &rarr; <strong>Facebook Login</strong> &rarr; <strong>Set Up</strong> &rarr; choose <strong>Web</strong> &rarr; enter your site URL.
+              In <strong>Facebook Login &rarr; Settings</strong>, add to <strong>Valid OAuth Redirect URIs</strong>:
+              <code className="mt-1 block text-xs bg-slate-100 rounded px-2 py-1">https://inboxweave.com/api/meta/oauth/callback</code>
+              Enable Client OAuth Login + Web OAuth Login. Save.
             </Step>
 
             <Step n={3}>
-              <strong>Add Messenger product.</strong> Also add the <strong>Messenger</strong> product to the same app. In Messenger Settings &rarr; <strong>Webhooks</strong>:
+              <strong>Add Product</strong> &rarr; add <strong>Messenger</strong>. In Messenger Settings &rarr; <strong>Webhooks</strong>:
               <ul className="mt-2 ml-4 space-y-1 list-disc">
-                <li>Callback URL: <code className="text-xs bg-slate-100 rounded px-1">https://your-domain.com/api/webhooks/messenger</code></li>
-                <li>Verify token: same <code className="text-xs bg-slate-100 rounded px-1">META_WEBHOOK_VERIFY_TOKEN</code></li>
+                <li>Callback URL: <code className="text-xs bg-slate-100 rounded px-1">https://inboxweave.com/api/webhooks/messenger</code></li>
+                <li>Verify token: same as the one in InboxWeave settings</li>
                 <li>Subscribe to: <strong>messages, messaging_postbacks</strong></li>
               </ul>
             </Step>
 
             <Step n={4}>
-              <strong>Add Instagram product</strong> (if using IG DMs). Add the <strong>Instagram</strong> product &rarr; configure webhook:
+              If using Instagram DMs: <strong>Add Product</strong> &rarr; <strong>Instagram</strong> &rarr; configure webhook:
               <ul className="mt-2 ml-4 space-y-1 list-disc">
-                <li>Callback URL: <code className="text-xs bg-slate-100 rounded px-1">https://your-domain.com/api/webhooks/instagram</code></li>
+                <li>Callback URL: <code className="text-xs bg-slate-100 rounded px-1">https://inboxweave.com/api/webhooks/instagram</code></li>
                 <li>Subscribe to: <strong>messages</strong></li>
               </ul>
             </Step>
 
             <Step n={5}>
-              <strong>Connect from InboxWeave.</strong> Go to your org &rarr; <strong>Channels</strong> &rarr; click <strong>Connect with Facebook</strong>. This opens Facebook Login. Select the Pages you want to connect. InboxWeave automatically detects which Pages have Instagram Business accounts linked and creates channels for both.
-            </Step>
-
-            <Step n={6}>
-              <strong>App Review (for production).</strong> For development, you can test with your own accounts. To go live with other users, submit your app for Meta App Review and request the <code className="text-xs bg-slate-100 rounded px-1">pages_messaging</code> and <code className="text-xs bg-slate-100 rounded px-1">instagram_manage_messages</code> permissions.
+              In InboxWeave &rarr; <strong>Channels</strong> &rarr; click <strong>Connect with Facebook</strong>. Approve the permissions prompt and select which Page(s) to connect. Done.
             </Step>
 
             <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
-              <strong>Test it:</strong> Send a DM to your connected Facebook Page or Instagram account. It should appear in the InboxWeave and get an AI reply.
+              <strong>Your app is in Development Mode.</strong> This works fine for testing with yourself + any &ldquo;App Administrator/Developer/Tester&rdquo; you add in <strong>App Roles</strong>. For public use, you&apos;d need App Review (not required for personal / small-team use).
             </div>
           </div>
         </section>
@@ -163,46 +208,27 @@ export default function GuidesPage() {
             </div>
             <div>
               <h2 className="text-xl font-bold">SMS via Twilio</h2>
-              <p className="text-sm text-slate-500">Pay-as-you-go pricing &middot; ~5 minutes</p>
+              <p className="text-sm text-slate-500">Pay-as-you-go &middot; ~5 minutes</p>
             </div>
           </div>
 
           <div className="card space-y-5">
-            <Step n={1}>
-              <strong>Create a Twilio account.</strong> Sign up at{" "}
-              <span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">twilio.com</span>. The free trial gives you a phone number and credits to test.
-            </Step>
-
-            <Step n={2}>
-              <strong>Get a phone number.</strong> In the Twilio Console &rarr; <strong>Phone Numbers</strong> &rarr; <strong>Buy a Number</strong>. Pick one with SMS capability. Note the number in E.164 format (e.g. <code className="text-xs bg-slate-100 rounded px-1">+14155551234</code>).
-            </Step>
-
-            <Step n={3}>
-              <strong>Find your credentials.</strong> In the Twilio Console dashboard, copy your <strong>Account SID</strong> and <strong>Auth Token</strong>.
-            </Step>
-
+            <Step n={1}>Sign up at <a href="https://twilio.com" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">twilio.com</a>. Free trial includes a phone number and credits.</Step>
+            <Step n={2}>Console &rarr; <strong>Phone Numbers &rarr; Buy a Number</strong> &rarr; pick one with SMS capability. Note the E.164 format (e.g. <code className="text-xs">+14155551234</code>).</Step>
+            <Step n={3}>From the Twilio Console dashboard, copy your <strong>Account SID</strong> and <strong>Auth Token</strong>.</Step>
             <Step n={4}>
-              <strong>Configure webhook.</strong> Go to your phone number&apos;s settings &rarr; <strong>Messaging</strong> &rarr; <strong>A MESSAGE COMES IN</strong> &rarr; set webhook to:
-              <code className="mt-1 block text-xs bg-slate-100 rounded px-2 py-1">https://your-domain.com/api/webhooks/sms</code>
+              Your phone number&apos;s settings &rarr; <strong>Messaging</strong> &rarr; <strong>A MESSAGE COMES IN</strong> webhook:
+              <code className="mt-1 block text-xs bg-slate-100 rounded px-2 py-1">https://inboxweave.com/api/webhooks/sms</code>
               Method: <strong>HTTP POST</strong>.
             </Step>
-
-            <Step n={5}>
-              <strong>Paste into InboxWeave.</strong> Go to your org &rarr; <strong>Channels</strong> &rarr; <strong>SMS</strong> tab (or navigate to <code className="text-xs bg-slate-100 rounded px-1">/channels/sms</code>) &rarr; enter Account SID, Auth Token, and phone number. Click <strong>Save</strong>. Done!
-            </Step>
-
-            <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
-              <strong>Test it:</strong> Text your Twilio number from any phone. The message appears in InboxWeave and gets an AI reply via SMS.
-            </div>
+            <Step n={5}>In InboxWeave &rarr; <strong>Channels &rarr; SMS</strong> &rarr; paste Account SID, Auth Token, phone number. Save.</Step>
           </div>
         </section>
 
         {/* ── Email ────────────────────────────────────────────── */}
         <section id="email" className="mb-16">
           <div className="flex items-center gap-3 mb-6">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-600 text-lg font-extrabold">
-              @
-            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-600 text-lg font-extrabold">@</div>
             <div>
               <h2 className="text-xl font-bold">Email (IMAP/SMTP)</h2>
               <p className="text-sm text-slate-500">Works with Gmail, Outlook, custom &middot; ~5 minutes</p>
@@ -210,33 +236,15 @@ export default function GuidesPage() {
           </div>
 
           <div className="card space-y-5">
-            <Step n={1}>
-              <strong>Choose your email.</strong> You can use any email that supports IMAP/SMTP: Gmail, Outlook, custom domain email, etc.
-            </Step>
-
+            <Step n={1}>For <strong>Gmail</strong>: enable 2FA &rarr; create an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">App Password</a> for &ldquo;Mail&rdquo;. Use this instead of your regular password.</Step>
             <Step n={2}>
-              <strong>For Gmail:</strong> Go to your Google Account &rarr; <strong>Security</strong> &rarr; <strong>App passwords</strong> (requires 2FA enabled) &rarr; generate an app password for &ldquo;Mail&rdquo;. Use this instead of your regular password.
+              Settings depending on provider:
               <div className="mt-2 rounded bg-slate-50 p-2 text-xs">
-                IMAP: <code>imap.gmail.com</code> port <code>993</code><br />
-                SMTP: <code>smtp.gmail.com</code> port <code>587</code>
+                <strong>Gmail:</strong> IMAP <code>imap.gmail.com:993</code>, SMTP <code>smtp.gmail.com:587</code><br />
+                <strong>Outlook:</strong> IMAP <code>outlook.office365.com:993</code>, SMTP <code>smtp.office365.com:587</code>
               </div>
             </Step>
-
-            <Step n={3}>
-              <strong>For Outlook/Office 365:</strong>
-              <div className="mt-2 rounded bg-slate-50 p-2 text-xs">
-                IMAP: <code>outlook.office365.com</code> port <code>993</code><br />
-                SMTP: <code>smtp.office365.com</code> port <code>587</code>
-              </div>
-            </Step>
-
-            <Step n={4}>
-              <strong>Paste into InboxWeave.</strong> Go to your org &rarr; <strong>Channels</strong> &rarr; <strong>Email</strong> (or navigate to <code className="text-xs bg-slate-100 rounded px-1">/channels/email</code>) &rarr; enter your email, IMAP/SMTP hosts and ports, and app password. Click <strong>Save</strong>.
-            </Step>
-
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-              <strong>Note:</strong> Email polling requires a background job to check the IMAP inbox periodically. This is configured separately via a cron job or serverless function.
-            </div>
+            <Step n={3}>In InboxWeave &rarr; <strong>Channels &rarr; Email</strong> &rarr; paste email, hosts, ports, and app password. Save.</Step>
           </div>
         </section>
 
@@ -253,34 +261,19 @@ export default function GuidesPage() {
           </div>
 
           <div className="card space-y-5">
-            <Step n={1}>
-              <strong>Create an OpenAI account.</strong> Go to{" "}
-              <span className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">platform.openai.com</span> and sign up.
-            </Step>
-
-            <Step n={2}>
-              <strong>Add billing.</strong> Go to <strong>Settings &rarr; Billing</strong> &rarr; add a payment method and load a small amount ($5-10 is enough to start).
-            </Step>
-
-            <Step n={3}>
-              <strong>Create an API key.</strong> Go to <strong>API Keys</strong> &rarr; <strong>Create new secret key</strong> &rarr; name it &ldquo;InboxWeave&rdquo; &rarr; copy the key (starts with <code className="text-xs bg-slate-100 rounded px-1">sk-</code>).
-            </Step>
-
-            <Step n={4}>
-              <strong>Paste into InboxWeave.</strong> Go to your org &rarr; <strong>Settings</strong> &rarr; paste the key in the <strong>OpenAI API key</strong> field &rarr; click <strong>Save key</strong>. It&apos;s encrypted immediately and never shown again.
-            </Step>
+            <Step n={1}>Sign up at <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">platform.openai.com</a>.</Step>
+            <Step n={2}>Settings &rarr; Billing &rarr; add a payment method and load $5-10.</Step>
+            <Step n={3}>API Keys &rarr; Create new secret key &rarr; copy the <code className="text-xs">sk-...</code> key.</Step>
+            <Step n={4}>In InboxWeave &rarr; <strong>Settings</strong> &rarr; paste into the OpenAI API key field &rarr; Save. It&apos;s encrypted immediately.</Step>
 
             <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
-              <strong>Cost:</strong> GPT-4o-mini costs about $0.15 per 1M input tokens. A typical small business uses $1-5/month. You can monitor usage in your org&apos;s <strong>Dashboard</strong>.
+              <strong>Cost:</strong> GPT-4o-mini is ~$0.15 per 1M input tokens. Typical small business: $1-5/month. Track usage in your Dashboard.
             </div>
           </div>
         </section>
 
         <div className="text-center">
-          <Link href="/signup" className="btn px-8 py-3 text-base">
-            Get started free &rarr;
-          </Link>
-          <p className="mt-3 text-xs text-slate-400">All guides assume you already have an InboxWeave account</p>
+          <Link href="/signup" className="btn px-8 py-3 text-base">Get started free &rarr;</Link>
         </div>
       </main>
     </div>
