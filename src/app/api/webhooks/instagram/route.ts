@@ -7,22 +7,38 @@ import {
   findOrgByVerifyToken,
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
+import { logWebhookDebug } from "@/lib/channels/debug-log";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
-  if (mode !== "subscribe" || !token || !challenge) {
-    return new NextResponse("forbidden", { status: 403 });
+  const url = new URL(req.url);
+  const mode = url.searchParams.get("hub.mode");
+  const token = url.searchParams.get("hub.verify_token");
+  const challenge = url.searchParams.get("hub.challenge");
+
+  let status = 403;
+  let orgId: string | null = null;
+  let err: string | undefined;
+
+  if (mode === "subscribe" && token && challenge) {
+    if (token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
+      status = 200;
+    } else {
+      orgId = await findOrgByVerifyToken(token);
+      status = orgId ? 200 : 403;
+      if (!orgId) err = `verify_token did not match any org`;
+    }
+  } else {
+    err = "missing hub.mode/token/challenge";
   }
-  if (token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
-    return new NextResponse(challenge, { status: 200 });
-  }
-  const orgId = await findOrgByVerifyToken(token);
-  if (orgId) return new NextResponse(challenge, { status: 200 });
+
+  logWebhookDebug({
+    platform: "instagram", method: "GET", statusCode: status,
+    orgId, queryString: url.search, error: err,
+  });
+
+  if (status === 200 && challenge) return new NextResponse(challenge, { status: 200 });
   return new NextResponse("forbidden", { status: 403 });
 }
 
@@ -34,11 +50,19 @@ export async function POST(req: NextRequest) {
   try {
     body = JSON.parse(raw);
   } catch {
+    logWebhookDebug({ platform: "instagram", method: "POST", statusCode: 400, rawBody: raw, error: "bad json" });
     return new NextResponse("bad json", { status: 400 });
   }
 
   const messages = parseInstagramWebhook(body);
-  if (messages.length === 0) return NextResponse.json({ ok: true });
+
+  if (messages.length === 0) {
+    logWebhookDebug({
+      platform: "instagram", method: "POST", statusCode: 200,
+      parsedCount: 0, rawBody: raw, error: "no parseable messages (may be a non-message event)",
+    });
+    return NextResponse.json({ ok: true });
+  }
 
   const firstPageId = messages[0]!.pageId;
   const orgId = await findOrgByChannelExternalId(firstPageId);
@@ -48,10 +72,23 @@ export async function POST(req: NextRequest) {
     const creds = await getMetaCredentials(orgId, "ig");
     if (creds) appSecret = creds.appSecret;
   }
-  if (!appSecret) return new NextResponse("not configured", { status: 500 });
-  if (!verifyMetaSignatureWithSecret(raw, sig, appSecret)) {
-    return new NextResponse("invalid signature", { status: 401 });
+  if (!appSecret) {
+    logWebhookDebug({
+      platform: "instagram", method: "POST", statusCode: 500,
+      parsedCount: messages.length, orgId, rawBody: raw,
+      error: `no app secret for org=${orgId ?? "unknown"}, channel external_id=${firstPageId}`,
+    });
+    return new NextResponse("not configured", { status: 500 });
   }
+
+  const sigOk = verifyMetaSignatureWithSecret(raw, sig, appSecret);
+  logWebhookDebug({
+    platform: "instagram", method: "POST",
+    statusCode: sigOk ? 200 : 401,
+    signatureOk: sigOk, parsedCount: messages.length, orgId, rawBody: raw,
+    error: sigOk ? undefined : `signature mismatch`,
+  });
+  if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
 
   for (const m of messages) {
     await handleInbound({
