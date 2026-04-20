@@ -111,7 +111,7 @@ export default async function MetaSettingsPage({
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600">
           <div className="font-semibold">Webhook setup in Meta:</div>
           <div>Callback: <code className="font-mono break-all">{appUrl}/api/webhooks/instagram</code></div>
-          <div>OAuth redirect: <code className="font-mono break-all">{appUrl}/api/meta/ig-oauth/callback</code></div>
+          <div>OAuth redirect: <code className="font-mono break-all">{appUrl}/api/meta/oauth/callback</code></div>
           <div>Subscribe to: <strong>messages</strong></div>
         </div>
       </section>

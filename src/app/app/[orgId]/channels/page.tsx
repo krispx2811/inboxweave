@@ -54,7 +54,8 @@ export default async function ChannelsPage({
     (metaSettings?.ig_app_id as string | undefined) ??
     (metaSettings?.app_id as string | undefined) ??
     process.env.META_APP_ID;
-  const oauthState = Buffer.from(JSON.stringify({ orgId })).toString("base64url");
+  const fbState = Buffer.from(JSON.stringify({ orgId, flow: "fb" })).toString("base64url");
+  const igState = Buffer.from(JSON.stringify({ orgId, flow: "ig" })).toString("base64url");
 
   // Classic Facebook Login — for Messenger + Pages (requires Facebook Login product).
   const fbLoginUrl =
@@ -63,11 +64,12 @@ export default async function ChannelsPage({
       new URLSearchParams({
         client_id: fbAppId,
         redirect_uri: `${appUrl}/api/meta/oauth/callback`,
-        state: oauthState,
+        state: fbState,
         scope: "pages_show_list,pages_messaging,pages_manage_metadata,instagram_basic,instagram_manage_messages",
       }).toString();
 
-  // Instagram Business Login — the new IG API (no Facebook Page required).
+  // Instagram Business Login — reuses /api/meta/oauth/callback which
+  // dispatches to the IG handler when state.flow === "ig".
   const igLoginUrl =
     igAppId &&
     `https://www.instagram.com/oauth/authorize?` +
@@ -75,10 +77,10 @@ export default async function ChannelsPage({
         enable_fb_login: "0",
         force_authentication: "1",
         client_id: igAppId,
-        redirect_uri: `${appUrl}/api/meta/ig-oauth/callback`,
+        redirect_uri: `${appUrl}/api/meta/oauth/callback`,
         response_type: "code",
         scope: "instagram_business_basic,instagram_business_manage_messages",
-        state: oauthState,
+        state: igState,
       }).toString();
 
   return (

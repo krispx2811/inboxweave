@@ -32,11 +32,24 @@ export async function GET(req: NextRequest) {
   if (!code || !state) return NextResponse.redirect(new URL("/", req.url));
 
   let orgId: string;
+  let flow: "ig" | "fb" = "fb";
   try {
-    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as { orgId: string };
+    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
+      orgId: string;
+      flow?: "ig" | "fb";
+    };
     orgId = decoded.orgId;
+    if (decoded.flow === "ig") flow = "ig";
   } catch {
     return new NextResponse("bad state", { status: 400 });
+  }
+
+  // If this callback was triggered by an Instagram Business Login, delegate
+  // to the IG handler by forwarding the same query params.
+  if (flow === "ig") {
+    const forward = new URL("/api/meta/ig-oauth/callback", req.url);
+    forward.search = new URL(req.url).search;
+    return NextResponse.redirect(forward);
   }
 
   await requireOrgMember(orgId);
