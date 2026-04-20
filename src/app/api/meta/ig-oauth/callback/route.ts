@@ -94,7 +94,11 @@ export async function GET(req: NextRequest) {
     return redirectBack(req, orgId, "error", `Step 1: no user_id in response`);
   }
 
-  const igUserId = String(tokenJson.user_id);
+  // NOTE: tokenJson.user_id is the "app-scoped" IG user ID (~16 digits).
+  // But webhook events use the canonical Instagram Business user ID (~17
+  // digits, e.g. 17841...). We fetch the canonical ID from /me below and
+  // use THAT as the channel external_id so webhooks route correctly.
+  let igUserId = String(tokenJson.user_id);
   let accessToken = tokenJson.access_token;
 
   // ── Step 2: long-lived exchange (best-effort, not fatal) ──────────
@@ -114,30 +118,48 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Step 3: best-effort fetch username so the channel has a nice label.
-  // The working pattern is graph.instagram.com/v21.0/{id} with access_token
-  // as a query param (same host + version used for /me/messages).
+  // ── Step 3: fetch canonical user_id + username from /me.
+  // The token-exchange response returns an app-scoped ID; webhooks use the
+  // canonical IG Business user ID which we get here. Override igUserId.
   let username: string | undefined;
-  for (const base of [
-    `https://graph.instagram.com/v21.0/${igUserId}`,
-    `https://graph.instagram.com/v21.0/me`,
-    `https://graph.instagram.com/${igUserId}`,
-  ]) {
+  try {
+    const u = new URL("https://graph.instagram.com/v21.0/me");
+    u.searchParams.set("fields", "user_id,username,name,profile_picture_url");
+    u.searchParams.set("access_token", accessToken);
+    const r = await fetch(u.toString());
+    const t = await r.text();
+    console.log("[ig oauth] /me fetch", r.status, t.slice(0, 250));
+    const j = JSON.parse(t) as { user_id?: string; username?: string };
+    if (j.user_id) igUserId = String(j.user_id);
+    if (j.username) username = j.username;
+  } catch (err) {
+    console.log("[ig oauth] /me threw:", (err as Error).message);
+  }
+
+  // ── Step 4: subscribe this IG account to the app's webhooks ────────
+  // Without this, Meta won't deliver message webhooks for this account even
+  // if the webhook URL + verify token + messages field are all configured.
+  let subscribeInfo = "";
+  for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
     try {
-      const u = new URL(base);
-      u.searchParams.set("fields", "username,name,profile_picture_url");
-      u.searchParams.set("access_token", accessToken);
-      const r = await fetch(u.toString());
-      const t = await r.text();
-      console.log("[ig oauth] username fetch", base, r.status, t.slice(0, 200));
-      const j = JSON.parse(t) as { username?: string };
-      if (j.username) { username = j.username; break; }
-    } catch {
-      /* ignore */
+      const subUrl = new URL(`https://${host}/${igUserId}/subscribed_apps`);
+      subUrl.searchParams.set("subscribed_fields", "messages");
+      subUrl.searchParams.set("access_token", accessToken);
+      const subRes = await fetch(subUrl.toString(), { method: "POST" });
+      const subText = await subRes.text();
+      console.log(`[ig oauth] subscribe (${host}):`, subRes.status, subText.slice(0, 200));
+      if (subRes.ok) {
+        subscribeInfo = ` — subscribed via ${host}`;
+        break;
+      } else {
+        subscribeInfo = ` — subscribe failed: ${subText.slice(0, 80)}`;
+      }
+    } catch (err) {
+      console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);
     }
   }
 
-  // ── Step 4: persist channel ─────────────────────────────────────────
+  // ── Step 5: persist channel ─────────────────────────────────────────
   const admin = createSupabaseAdminClient();
   const encrypted = bufferToPgBytea(encryptSecret(accessToken));
   const { error: upErr } = await admin.from("channels").upsert(
@@ -152,7 +174,7 @@ export async function GET(req: NextRequest) {
     { onConflict: "external_id" },
   );
   if (upErr) {
-    return redirectBack(req, orgId, "error", `Step 4 (DB): ${upErr.message}`);
+    return redirectBack(req, orgId, "error", `Step 5 (DB): ${upErr.message}`);
   }
 
   await admin.from("audit_logs").insert({
