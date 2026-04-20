@@ -1,7 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { updateAiSettings, updateOpenAIKey } from "./actions";
 import Link from "next/link";
-import { IconSparkle, IconShield, IconFacebook, IconGlobe } from "@/components/icons";
+import { IconSparkle, IconShield, IconFacebook, IconGlobe, IconBolt } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +144,24 @@ export default async function SettingsPage({
           <div>
             <div className="font-semibold">Webhook Events</div>
             <div className="text-xs text-slate-500">Push events to external systems</div>
+          </div>
+        </Link>
+        <Link href={`/app/${orgId}/settings/debug`} className="card-hover flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+            <IconBolt className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold">Webhook Debug Log</div>
+            <div className="text-xs text-slate-500">Last 50 incoming webhook requests</div>
+          </div>
+        </Link>
+        <Link href={`/app/${orgId}/settings/gdpr`} className="card-hover flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-600">
+            <IconShield className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold">GDPR & Privacy</div>
+            <div className="text-xs text-slate-500">Data export and right-to-delete</div>
           </div>
         </Link>
       </div>
