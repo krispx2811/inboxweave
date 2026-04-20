@@ -13,16 +13,33 @@ export async function getOpenAIForOrg(orgId: string): Promise<OpenAI> {
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from("org_secrets")
-    .select("openai_api_key_ciphertext")
+    .select("openai_api_key_ciphertext, updated_at")
     .eq("org_id", orgId)
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(`org_secrets query failed: ${error.message}`);
   if (!data?.openai_api_key_ciphertext) {
     throw new Error(`Org ${orgId} has no OpenAI API key configured`);
   }
-  const buf = pgByteaToBuffer(data.openai_api_key_ciphertext as unknown as string);
-  const apiKey = decryptSecret(buf);
-  return new OpenAI({ apiKey });
+
+  const raw = data.openai_api_key_ciphertext as unknown;
+  const buf = pgByteaToBuffer(raw as string | Buffer | Uint8Array);
+  if (buf.length < 29) {
+    throw new Error(`ciphertext too short for org ${orgId}: ${buf.length} bytes (raw type=${typeof raw})`);
+  }
+  const apiKey = decryptSecret(buf).trim();
+  if (!apiKey.startsWith("sk-")) {
+    throw new Error(`decrypted key doesn't look like an OpenAI key (starts with ${apiKey.slice(0, 4).replace(/./g, "?")}). Re-save from Settings.`);
+  }
+
+  // Explicitly null out organization/project/baseURL so the SDK doesn't
+  // accidentally pick up stray OPENAI_* env vars on Netlify that would
+  // point the request at the wrong org/project for this key.
+  return new OpenAI({
+    apiKey,
+    organization: null,
+    project: null,
+    baseURL: "https://api.openai.com/v1",
+  });
 }
 
 export interface AiSettings {
