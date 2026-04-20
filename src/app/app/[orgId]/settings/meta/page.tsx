@@ -13,7 +13,12 @@ export default async function MetaSettingsPage({
 
   // Defensive DB read — don't crash the page if the table is missing or
   // the service role key isn't set; surface a clear error instead.
-  let settings: { app_id?: string; webhook_verify_token?: string; updated_at?: string } | null = null;
+  interface MetaRow {
+    app_id: string | null;
+    webhook_verify_token: string | null;
+    updated_at: string | null;
+  }
+  let settings: MetaRow | null = null;
   let dbError: string | null = null;
   try {
     const admin = createSupabaseAdminClient();
@@ -23,7 +28,7 @@ export default async function MetaSettingsPage({
       .eq("org_id", orgId)
       .maybeSingle();
     if (error) dbError = error.message;
-    else settings = data as typeof settings;
+    else settings = (data as unknown as MetaRow) ?? null;
   } catch (err) {
     dbError = (err as Error).message;
   }
@@ -87,7 +92,7 @@ export default async function MetaSettingsPage({
           <input type="hidden" name="orgId" value={orgId} />
           <div>
             <label className="label">App ID</label>
-            <input className="input" name="appId" defaultValue={settings?.app_id ?? ""} placeholder="e.g. 123456789012345" required />
+            <input className="input" name="appId" defaultValue={settings?.app_id ?? ""} placeholder="e.g. 123456789012345" autoComplete="off" required />
             <p className="mt-1 text-[10px] text-slate-400">From Meta Developer dashboard → your app → Settings → Basic</p>
           </div>
           <div>
