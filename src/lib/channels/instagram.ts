@@ -42,6 +42,30 @@ export async function sendInstagramText(params: {
   return { messageId: json.message_id };
 }
 
+/**
+ * Send a sender_action to Instagram. "typing_on" shows the three-dot
+ * typing bubble to the recipient and auto-clears after ~20s or when the
+ * next real message arrives. Non-critical — all errors are swallowed.
+ */
+export async function sendInstagramSenderAction(params: {
+  pageAccessToken: string;
+  recipientId: string;
+  action: "typing_on" | "typing_off" | "mark_seen";
+  useFacebookGraph?: boolean;
+}): Promise<void> {
+  const host = params.useFacebookGraph ? "graph.facebook.com" : "graph.instagram.com";
+  const url = `https://${host}/${GRAPH_VERSION}/me/messages`;
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recipient: { id: params.recipientId },
+      sender_action: params.action,
+      access_token: params.pageAccessToken,
+    }),
+  }).catch(() => {});
+}
+
 export interface InboundInstagramMessage {
   pageId: string; // IG business account id as reported by webhook
   senderId: string;

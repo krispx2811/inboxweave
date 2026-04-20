@@ -30,6 +30,30 @@ export async function sendMessengerText(params: {
   return { messageId: json.message_id };
 }
 
+/**
+ * Send a sender_action to Messenger (typing_on / typing_off / mark_seen).
+ * Non-critical — errors are swallowed.
+ */
+export async function sendMessengerSenderAction(params: {
+  pageAccessToken: string;
+  recipientPsid: string;
+  action: "typing_on" | "typing_off" | "mark_seen";
+}): Promise<void> {
+  await fetch(
+    `https://graph.facebook.com/${GRAPH_VERSION}/me/messages?access_token=${encodeURIComponent(
+      params.pageAccessToken,
+    )}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { id: params.recipientPsid },
+        sender_action: params.action,
+      }),
+    },
+  ).catch(() => {});
+}
+
 export interface InboundMessengerMessage {
   pageId: string;
   senderPsid: string;

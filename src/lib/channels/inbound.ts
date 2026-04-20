@@ -5,7 +5,7 @@ import { generateReply, detectLanguage } from "@/lib/ai/openai";
 import { retrieveContext } from "@/lib/ai/rag";
 import { analyzeSentiment } from "@/lib/ai/analysis";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
-import { sendOutbound } from "./router";
+import { sendOutbound, sendTypingIndicator } from "./router";
 
 export interface NormalizedInbound {
   platform: ChannelPlatform;
@@ -213,6 +213,11 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
         content: m.content as string,
       }));
+
+    // Show the "typing…" bubble to the contact while the AI thinks. Fire
+    // and forget — if this fails the reply still goes through. IG/FB auto-
+    // clear typing on the next outbound message or after ~20s idle.
+    sendTypingIndicator(convo.id as string).catch(() => {});
 
     let step = "retrieveContext";
     let reply: string;
