@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { deleteKnowledgeDoc, uploadKnowledgeDoc } from "./actions";
 import { IconUpload, IconKnowledge, IconTrash } from "@/components/icons";
@@ -77,14 +78,23 @@ export default async function KnowledgePage({
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-50">
                 <IconKnowledge className="h-5 w-5 text-slate-400" />
               </div>
-              <div className="min-w-0 flex-1">
+              <Link
+                href={`/app/${orgId}/knowledge/${d.id}`}
+                className="min-w-0 flex-1 hover:opacity-80"
+              >
                 <div className="font-semibold truncate">{d.title}</div>
                 <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
                   <span className={statusBadge(d.status as string)}>{d.status}</span>
                   {d.error && <span className="text-red-500 truncate">{d.error}</span>}
                   <span>{new Date(d.created_at as string).toLocaleDateString()}</span>
                 </div>
-              </div>
+              </Link>
+              <Link
+                href={`/app/${orgId}/knowledge/${d.id}`}
+                className="btn-ghost btn-sm"
+              >
+                View / Edit
+              </Link>
               <form action={deleteKnowledgeDoc}>
                 <input type="hidden" name="orgId" value={orgId} />
                 <input type="hidden" name="documentId" value={d.id} />

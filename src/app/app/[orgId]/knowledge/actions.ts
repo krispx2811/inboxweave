@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -65,6 +66,7 @@ export async function uploadKnowledgeDoc(formData: FormData) {
 
   try {
     const text = await extractText(file, bytes);
+    await admin.from("knowledge_documents").update({ content: text }).eq("id", doc.id);
     const chunks = chunkText(text);
     for (const content of chunks) {
       const embedding = await embedText(parsed.orgId, content);
@@ -102,6 +104,93 @@ async function extractText(file: File, bytes: Uint8Array): Promise<string> {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
+const UpdateSchema = z.object({
+  orgId: z.string().uuid(),
+  documentId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1).max(500_000),
+});
+
+/**
+ * Update a document's title and/or content. Re-chunks and re-embeds when
+ * the content changes so the AI's retrievable knowledge reflects the edit.
+ */
+export async function updateKnowledgeDoc(formData: FormData) {
+  const parsed = UpdateSchema.parse({
+    orgId: formData.get("orgId"),
+    documentId: formData.get("documentId"),
+    title: formData.get("title"),
+    content: formData.get("content"),
+  });
+  const ctx = await requireOrgMember(parsed.orgId);
+  if (ctx.role !== "owner") throw new Error("Only owners can edit knowledge");
+  const admin = createSupabaseAdminClient();
+
+  const { data: existing, error: readErr } = await admin
+    .from("knowledge_documents")
+    .select("id, title, content")
+    .eq("id", parsed.documentId)
+    .eq("org_id", parsed.orgId)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!existing) throw new Error("Document not found");
+
+  const titleChanged = existing.title !== parsed.title;
+  const contentChanged = (existing.content ?? "") !== parsed.content;
+
+  if (!titleChanged && !contentChanged) {
+    revalidatePath(`/app/${parsed.orgId}/knowledge`);
+    revalidatePath(`/app/${parsed.orgId}/knowledge/${parsed.documentId}`);
+    return;
+  }
+
+  await admin
+    .from("knowledge_documents")
+    .update({
+      title: parsed.title,
+      content: parsed.content,
+      status: contentChanged ? "processing" : existing.content ? "ready" : "ready",
+      error: null,
+    })
+    .eq("id", parsed.documentId);
+
+  if (contentChanged) {
+    // Wipe old chunks + regenerate.
+    const { error: delErr } = await admin
+      .from("knowledge_chunks")
+      .delete()
+      .eq("document_id", parsed.documentId);
+    if (delErr) throw new Error(delErr.message);
+
+    try {
+      const chunks = chunkText(parsed.content);
+      for (const content of chunks) {
+        const embedding = await embedText(parsed.orgId, content);
+        const { error } = await admin.from("knowledge_chunks").insert({
+          document_id: parsed.documentId,
+          org_id: parsed.orgId,
+          content,
+          embedding,
+        });
+        if (error) throw new Error(error.message);
+      }
+      await admin
+        .from("knowledge_documents")
+        .update({ status: "ready" })
+        .eq("id", parsed.documentId);
+    } catch (err) {
+      await admin
+        .from("knowledge_documents")
+        .update({ status: "error", error: (err as Error).message })
+        .eq("id", parsed.documentId);
+      throw err;
+    }
+  }
+
+  revalidatePath(`/app/${parsed.orgId}/knowledge`);
+  revalidatePath(`/app/${parsed.orgId}/knowledge/${parsed.documentId}`);
+}
+
 const DeleteSchema = z.object({
   orgId: z.string().uuid(),
   documentId: z.string().uuid(),
@@ -122,4 +211,5 @@ export async function deleteKnowledgeDoc(formData: FormData) {
     .eq("org_id", parsed.orgId);
   if (error) throw new Error(error.message);
   revalidatePath(`/app/${parsed.orgId}/knowledge`);
+  redirect(`/app/${parsed.orgId}/knowledge`);
 }
