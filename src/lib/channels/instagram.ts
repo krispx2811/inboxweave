@@ -52,12 +52,31 @@ export interface InboundInstagramMessage {
 export function parseInstagramWebhook(body: unknown): InboundInstagramMessage[] {
   const out: InboundInstagramMessage[] = [];
   const entries =
-    (body as { entry?: Array<{ id: string; messaging?: IGEvent[]; standby?: IGEvent[] }> }).entry ?? [];
+    (body as {
+      entry?: Array<{
+        id: string;
+        messaging?: IGEvent[];
+        standby?: IGEvent[];
+        changes?: Array<{ field: string; value: IGEvent }>;
+      }>;
+    }).entry ?? [];
+
   for (const entry of entries) {
     const pageId = entry.id;
-    // Primary inbox → "messaging" array; General inbox (handover) → "standby" array.
-    // Same event shape in both; collect from both.
-    const events = [...(entry.messaging ?? []), ...(entry.standby ?? [])];
+
+    // Meta delivers Instagram DM events via three possible arrays:
+    //   entry.messaging[] — classic Messenger-style (Primary inbox)
+    //   entry.standby[]   — handover protocol / General inbox
+    //   entry.changes[]   — NEW Instagram API format where each change has
+    //                        { field: "messages", value: <event> }
+    const events: IGEvent[] = [
+      ...(entry.messaging ?? []),
+      ...(entry.standby ?? []),
+    ];
+    for (const ch of entry.changes ?? []) {
+      if (ch.field === "messages" && ch.value) events.push(ch.value);
+    }
+
     for (const ev of events) {
       if (!ev.message || ev.message.is_echo) continue;
       const text = ev.message.text;
