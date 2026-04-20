@@ -18,11 +18,11 @@ export async function GET() {
     healthy = false;
   }
 
-  // Env vars present.
+  // Env vars present. Meta credentials are now per-org so env vars are
+  // optional; only Supabase + encryption key are required.
   checks.env_supabase = process.env.NEXT_PUBLIC_SUPABASE_URL ? "ok" : "error";
   checks.env_secrets = process.env.SECRETS_ENCRYPTION_KEY ? "ok" : "error";
-  checks.env_meta = process.env.META_APP_SECRET ? "ok" : "error";
-  if (checks.env_supabase === "error") healthy = false;
+  if (checks.env_supabase === "error" || checks.env_secrets === "error") healthy = false;
 
   return NextResponse.json(
     {
