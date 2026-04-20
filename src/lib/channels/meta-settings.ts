@@ -4,6 +4,24 @@ import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 
 export type MetaProduct = "ig" | "fb";
 
+// Short-lived per-instance memoization for hot webhook lookups. 60s TTL
+// keeps stale tokens bounded while eliminating ~100ms of DB round-trips on
+// every single inbound message.
+const TTL_MS = 60_000;
+const credsCache = new Map<string, { value: MetaCredentials | null; expires: number }>();
+const orgByExtIdCache = new Map<string, { value: string | null; expires: number }>();
+const orgByTokenCache = new Map<string, { value: string | null; expires: number }>();
+
+function memoGet<T>(m: Map<string, { value: T; expires: number }>, k: string): { hit: true; value: T } | { hit: false } {
+  const e = m.get(k);
+  if (!e) return { hit: false };
+  if (e.expires < Date.now()) { m.delete(k); return { hit: false }; }
+  return { hit: true, value: e.value };
+}
+function memoSet<T>(m: Map<string, { value: T; expires: number }>, k: string, value: T): void {
+  m.set(k, { value, expires: Date.now() + TTL_MS });
+}
+
 export interface MetaCredentials {
   appId: string;
   appSecret: string;
@@ -23,6 +41,10 @@ export async function getMetaCredentials(
   orgId: string,
   product: MetaProduct = "fb",
 ): Promise<MetaCredentials | null> {
+  const cacheKey = `${orgId}:${product}`;
+  const cached = memoGet(credsCache, cacheKey);
+  if (cached.hit) return cached.value;
+
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("meta_settings")
@@ -31,7 +53,10 @@ export async function getMetaCredentials(
     )
     .eq("org_id", orgId)
     .maybeSingle();
-  if (!data || !data.webhook_verify_token) return null;
+  if (!data || !data.webhook_verify_token) {
+    memoSet(credsCache, cacheKey, null);
+    return null;
+  }
 
   let id: string | null;
   let cipher: string | null;
@@ -48,12 +73,17 @@ export async function getMetaCredentials(
       (data.app_secret_ciphertext as string | null);
   }
 
-  if (!id || !cipher) return null;
-  return {
+  if (!id || !cipher) {
+    memoSet(credsCache, cacheKey, null);
+    return null;
+  }
+  const creds: MetaCredentials = {
     appId: id,
     appSecret: decryptSecret(pgByteaToBuffer(cipher)),
     verifyToken: data.webhook_verify_token as string,
   };
+  memoSet(credsCache, cacheKey, creds);
+  return creds;
 }
 
 /**
@@ -70,21 +100,31 @@ export async function getAppSecretForProduct(
 }
 
 export async function findOrgByChannelExternalId(externalId: string): Promise<string | null> {
+  const cached = memoGet(orgByExtIdCache, externalId);
+  if (cached.hit) return cached.value;
+
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("channels")
     .select("org_id")
     .eq("external_id", externalId)
     .maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+  const orgId = (data?.org_id as string | undefined) ?? null;
+  memoSet(orgByExtIdCache, externalId, orgId);
+  return orgId;
 }
 
 export async function findOrgByVerifyToken(token: string): Promise<string | null> {
+  const cached = memoGet(orgByTokenCache, token);
+  if (cached.hit) return cached.value;
+
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("meta_settings")
     .select("org_id")
     .eq("webhook_verify_token", token)
     .maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+  const orgId = (data?.org_id as string | undefined) ?? null;
+  memoSet(orgByTokenCache, token, orgId);
+  return orgId;
 }

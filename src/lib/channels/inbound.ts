@@ -6,6 +6,7 @@ import { retrieveContext } from "@/lib/ai/rag";
 import { analyzeSentiment } from "@/lib/ai/analysis";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { sendOutbound, sendTypingIndicatorFast } from "./router";
+import { getCachedChannel, setCachedChannel } from "./cache";
 
 export interface NormalizedInbound {
   platform: ChannelPlatform;
@@ -40,6 +41,23 @@ function stripFooter(text: string): string {
 export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   const admin = createSupabaseAdminClient();
 
+  // Fast path: if this channel was seen in the last 60s on this function
+  // instance, fire the typing bubble NOW — before any DB round-trip.
+  // The authoritative DB lookup still runs below; we just don't wait for
+  // it to show the bubble.
+  const cachedChannel = getCachedChannel(msg.platform, msg.channelExternalId);
+  if (
+    cachedChannel &&
+    cachedChannel.status === "active" &&
+    (cachedChannel.platform === "instagram" || cachedChannel.platform === "messenger")
+  ) {
+    sendTypingIndicatorFast({
+      platform: cachedChannel.platform,
+      accessTokenCiphertext: cachedChannel.access_token_ciphertext,
+      contactExternalId: msg.contactExternalId,
+    }).catch(() => {});
+  }
+
   // 1. Resolve channel → org.
   const { data: channel, error: chErr } = await admin
     .from("channels")
@@ -53,12 +71,21 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
+  // Refresh the cache with the fresh row for the next inbound.
+  setCachedChannel(msg.platform, msg.channelExternalId, {
+    id: channel.id as string,
+    org_id: channel.org_id as string,
+    platform: channel.platform as string,
+    status: channel.status as string,
+    access_token_ciphertext: channel.access_token_ciphertext as string,
+  });
+
   const orgId = channel.org_id as string;
 
-  // Fire the typing bubble IMMEDIATELY, in parallel with all DB writes,
-  // so the customer sees "typing..." the instant their message is received.
-  // No await — it's cosmetic and must not block the critical path.
+  // Slow path: no cache hit (cold start or first message on this channel).
+  // Fire now, in parallel with DB writes below.
   if (
+    !cachedChannel &&
     channel.status === "active" &&
     (channel.platform === "instagram" || channel.platform === "messenger")
   ) {
