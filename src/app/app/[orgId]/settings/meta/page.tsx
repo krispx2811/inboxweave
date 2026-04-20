@@ -10,12 +10,25 @@ export default async function MetaSettingsPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
-  const admin = createSupabaseAdminClient();
-  const { data: settings } = await admin
-    .from("meta_settings")
-    .select("app_id, webhook_verify_token, updated_at")
-    .eq("org_id", orgId)
-    .maybeSingle();
+
+  // Defensive DB read — don't crash the page if the table is missing or
+  // the service role key isn't set; surface a clear error instead.
+  let settings: { app_id?: string; webhook_verify_token?: string; updated_at?: string } | null = null;
+  let dbError: string | null = null;
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data, error } = await admin
+      .from("meta_settings")
+      .select("app_id, webhook_verify_token, updated_at")
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (error) dbError = error.message;
+    else settings = data as typeof settings;
+  } catch (err) {
+    dbError = (err as Error).message;
+  }
+
+  const secretsKeyMissing = !process.env.SECRETS_ENCRYPTION_KEY;
 
   const configured = Boolean(settings?.app_id);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
@@ -31,6 +44,24 @@ export default async function MetaSettingsPage({
         <h1>Meta App Credentials</h1>
         <p>Connect your own Meta developer app to enable WhatsApp, Instagram, and Messenger</p>
       </div>
+
+      {dbError && (
+        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong>Database error:</strong> {dbError}
+          <div className="mt-2 text-xs">
+            This usually means the <code>meta_settings</code> table hasn&apos;t been created yet, or the
+            <code> SUPABASE_SERVICE_ROLE_KEY</code> environment variable is missing on your deployment.
+          </div>
+        </div>
+      )}
+
+      {secretsKeyMissing && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>Encryption key not set.</strong> <code>SECRETS_ENCRYPTION_KEY</code> is missing from
+          your environment. Saving credentials will fail until you set it. Generate one with
+          <code className="ml-1">openssl rand -hex 32</code> and add it to your env.
+        </div>
+      )}
 
       <section className="card mb-6">
         <div className="flex items-center gap-3 mb-5">
@@ -56,7 +87,7 @@ export default async function MetaSettingsPage({
           <input type="hidden" name="orgId" value={orgId} />
           <div>
             <label className="label">App ID</label>
-            <input className="input" name="appId" defaultValue={(settings?.app_id as string) ?? ""} placeholder="e.g. 123456789012345" required />
+            <input className="input" name="appId" defaultValue={settings?.app_id ?? ""} placeholder="e.g. 123456789012345" required />
             <p className="mt-1 text-[10px] text-slate-400">From Meta Developer dashboard → your app → Settings → Basic</p>
           </div>
           <div>
@@ -66,10 +97,12 @@ export default async function MetaSettingsPage({
           </div>
           <div>
             <label className="label">Webhook Verify Token</label>
-            <input className="input" name="verifyToken" defaultValue={(settings?.webhook_verify_token as string) ?? ""} placeholder="A random string you choose" required />
+            <input className="input" name="verifyToken" defaultValue={settings?.webhook_verify_token ?? ""} placeholder="A random string you choose" required />
             <p className="mt-1 text-[10px] text-slate-400">Any random string (e.g. generated with <code>openssl rand -hex 16</code>). You&apos;ll use the same value in Meta&apos;s webhook setup.</p>
           </div>
-          <button className="btn">Save Meta credentials</button>
+          <button className="btn" disabled={secretsKeyMissing}>
+            {secretsKeyMissing ? "Set SECRETS_ENCRYPTION_KEY to enable" : "Save Meta credentials"}
+          </button>
         </form>
       </section>
 
