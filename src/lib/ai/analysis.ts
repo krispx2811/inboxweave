@@ -1,16 +1,16 @@
 import "server-only";
-import { getOpenAIForOrg } from "./openai";
+import { rawChatCompletion } from "./openai";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export interface SentimentResult {
   sentiment: "positive" | "neutral" | "negative" | "angry";
-  score: number; // -1.0 to 1.0
+  score: number;
   shouldEscalate: boolean;
 }
 
 export async function analyzeSentiment(orgId: string, text: string): Promise<SentimentResult> {
-  const client = await getOpenAIForOrg(orgId);
-  const res = await client.chat.completions.create({
+  const raw = await rawChatCompletion({
+    orgId,
     model: "gpt-4o-mini",
     temperature: 0,
     max_tokens: 60,
@@ -24,7 +24,6 @@ Escalate if the customer is angry, threatening, or expressing serious dissatisfa
       { role: "user", content: text },
     ],
   });
-  const raw = res.choices[0]?.message?.content?.trim() ?? "";
   try {
     const parsed = JSON.parse(raw) as SentimentResult;
     return {
@@ -52,20 +51,20 @@ export async function generateSummary(orgId: string, conversationId: string): Pr
     .map((m) => `${m.direction === "in" ? "Customer" : m.sender === "ai" ? "AI" : "Agent"}: ${m.content}`)
     .join("\n");
 
-  const client = await getOpenAIForOrg(orgId);
-  const res = await client.chat.completions.create({
+  return rawChatCompletion({
+    orgId,
     model: "gpt-4o-mini",
     temperature: 0.2,
     max_tokens: 200,
     messages: [
       {
         role: "system",
-        content: "Summarize this customer support conversation in 2-3 sentences. Focus on: what the customer wanted, what was resolved, and any outstanding issues.",
+        content:
+          "Summarize this customer support conversation in 2-3 sentences. Focus on: what the customer wanted, what was resolved, and any outstanding issues.",
       },
       { role: "user", content: transcript },
     ],
   });
-  return res.choices[0]?.message?.content?.trim() ?? "";
 }
 
 export async function generateSuggestedReplies(
@@ -90,8 +89,8 @@ export async function generateSuggestedReplies(
     .map((m) => `${m.direction === "in" ? "Customer" : "Agent"}: ${m.content}`)
     .join("\n");
 
-  const client = await getOpenAIForOrg(orgId);
-  const res = await client.chat.completions.create({
+  const raw = await rawChatCompletion({
+    orgId,
     model: "gpt-4o-mini",
     temperature: 0.7,
     max_tokens: 300,
@@ -106,7 +105,6 @@ Reply with ONLY a JSON array of 3 strings. Example: ["reply 1","reply 2","reply 
     ],
   });
 
-  const raw = res.choices[0]?.message?.content?.trim() ?? "[]";
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed.slice(0, 3).map(String);
