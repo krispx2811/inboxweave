@@ -19,6 +19,13 @@ export interface NormalizedInbound {
   mediaMime?: string;
 }
 
+const AI_FOOTER =
+  "\n\n—\nType Stop to stop AI messages or Start to turn it back on";
+const STOP_CONFIRMATION =
+  "Auto-Reply has been stopped. A team member will respond to you shortly, type Start to turn auto-reply back on.";
+const START_CONFIRMATION =
+  "Auto-Reply is back on. How can I help?" + AI_FOOTER;
+
 export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   const admin = createSupabaseAdminClient();
 
@@ -108,7 +115,66 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     void sentimentPromise;
   }
 
-  // 6. AI reply, if enabled and there is text.
+  // 6. Handle stop/start opt-out commands from the contact.
+  const command = msg.text?.trim().toLowerCase();
+  if (command === "stop") {
+    if (convo.ai_enabled) {
+      await admin.from("conversations").update({ ai_enabled: false }).eq("id", convo.id);
+      try {
+        const sent = await sendOutbound({ conversationId: convo.id, text: STOP_CONFIRMATION });
+        await admin.from("messages").insert({
+          org_id: orgId,
+          conversation_id: convo.id,
+          direction: "out",
+          sender: "ai",
+          content: STOP_CONFIRMATION,
+          platform_message_id: sent.platformMessageId ?? null,
+        });
+        await admin
+          .from("conversations")
+          .update({ last_message_at: new Date().toISOString() })
+          .eq("id", convo.id);
+      } catch (err) {
+        console.error("[inbound] stop confirmation failed", err);
+      }
+      await admin.from("audit_logs").insert({
+        org_id: orgId,
+        action: "ai_auto_disabled",
+        payload: { conversation_id: convo.id, reason: "contact_typed_stop" },
+      });
+    }
+    return;
+  }
+  if (command === "start") {
+    if (!convo.ai_enabled) {
+      await admin.from("conversations").update({ ai_enabled: true }).eq("id", convo.id);
+      try {
+        const sent = await sendOutbound({ conversationId: convo.id, text: START_CONFIRMATION });
+        await admin.from("messages").insert({
+          org_id: orgId,
+          conversation_id: convo.id,
+          direction: "out",
+          sender: "ai",
+          content: START_CONFIRMATION,
+          platform_message_id: sent.platformMessageId ?? null,
+        });
+        await admin
+          .from("conversations")
+          .update({ last_message_at: new Date().toISOString() })
+          .eq("id", convo.id);
+      } catch (err) {
+        console.error("[inbound] start confirmation failed", err);
+      }
+      await admin.from("audit_logs").insert({
+        org_id: orgId,
+        action: "ai_auto_enabled",
+        payload: { conversation_id: convo.id, reason: "contact_typed_start" },
+      });
+    }
+    return;
+  }
+
+  // 7. AI reply, if enabled and there is text.
   if (!convo.ai_enabled || !msg.text) return;
 
   try {
@@ -142,6 +208,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         replyInLanguage: detectedLang ?? undefined,
       });
       if (!reply) return;
+      reply = reply + AI_FOOTER;
       step = "sendOutbound";
       const sent = await sendOutbound({ conversationId: convo.id, text: reply });
       platformMessageId = sent.platformMessageId;
