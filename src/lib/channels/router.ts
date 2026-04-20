@@ -5,6 +5,7 @@ import type { ChannelPlatform } from "@/lib/supabase/types";
 import { sendWhatsAppText } from "./whatsapp";
 import { sendMessengerText } from "./messenger";
 import { sendInstagramText } from "./instagram";
+import { isTokenError, markChannelHealthy, markChannelUnhealthy } from "./health";
 
 /**
  * Unified outbound send. Loads the channel + decrypted access token, then
@@ -26,7 +27,7 @@ export async function sendOutbound(params: {
 
   const { data: channel, error: chErr } = await admin
     .from("channels")
-    .select("platform, external_id, access_token_ciphertext")
+    .select("id, org_id, platform, external_id, access_token_ciphertext")
     .eq("id", convo.channel_id)
     .single();
   if (chErr || !channel) throw new Error("Channel not found");
@@ -35,6 +36,7 @@ export async function sendOutbound(params: {
     pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
   );
 
+  const dispatch = async (): Promise<{ platformMessageId?: string; platform: ChannelPlatform }> => {
   if (channel.platform === "whatsapp") {
     const { messageId } = await sendWhatsAppText({
       phoneNumberId: channel.external_id,
@@ -81,5 +83,24 @@ export async function sendOutbound(params: {
     return { platformMessageId: messageId, platform: "sms" };
   }
 
-  throw new Error(`Unsupported platform: ${channel.platform as string}`);
+    throw new Error(`Unsupported platform: ${channel.platform as string}`);
+  };
+
+  try {
+    const result = await dispatch();
+    // Clear any stale error state on success.
+    markChannelHealthy(channel.id as string).catch(() => {});
+    return result;
+  } catch (err) {
+    const msg = (err as Error).message ?? String(err);
+    if (isTokenError(msg)) {
+      await markChannelUnhealthy({
+        channelId: channel.id as string,
+        orgId: channel.org_id as string,
+        platform: channel.platform as string,
+        error: msg,
+      }).catch(() => {});
+    }
+    throw err;
+  }
 }

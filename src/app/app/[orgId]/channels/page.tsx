@@ -34,9 +34,11 @@ export default async function ChannelsPage({
   const admin = createSupabaseAdminClient();
   const { data: channels } = await admin
     .from("channels")
-    .select("id, platform, external_id, display_name, status, created_at")
+    .select("id, platform, external_id, display_name, status, last_error, last_error_at, created_at")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
+
+  const brokenChannels = (channels ?? []).filter((c) => c.status === "error");
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
 
@@ -114,6 +116,29 @@ export default async function ChannelsPage({
       {ig === "error" && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <strong>Instagram connection failed.</strong> {msg ?? "Unknown error."}
+        </div>
+      )}
+
+      {brokenChannels.length > 0 && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 px-5 py-4 text-sm text-red-900">
+          <div className="font-semibold mb-1">
+            {brokenChannels.length === 1
+              ? "1 channel needs reconnection"
+              : `${brokenChannels.length} channels need reconnection`}
+          </div>
+          <p className="text-red-800 mb-3">
+            The access token has been invalidated by Meta (usually after a password change).
+            The AI cannot send replies on this channel until you reconnect it.
+          </p>
+          <ul className="space-y-1.5 text-xs text-red-800">
+            {brokenChannels.map((c) => (
+              <li key={c.id}>
+                <strong>{c.display_name ?? c.external_id}</strong>
+                {" — "}
+                <span className="font-mono">{(c.last_error as string | null)?.slice(0, 140) ?? "token invalid"}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
