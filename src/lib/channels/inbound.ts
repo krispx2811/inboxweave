@@ -127,19 +127,34 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         content: m.content as string,
       }));
 
-    const context = await retrieveContext(orgId, msg.text).catch(() => []);
-    const reply = await generateReply({
-      orgId,
-      conversationId: convo.id as string,
-      userMessage: msg.text,
-      history: turns,
-      retrievedContext: context,
-      replyInLanguage: detectedLang ?? undefined,
-    });
-
-    if (!reply) return;
-
-    const { platformMessageId } = await sendOutbound({ conversationId: convo.id, text: reply });
+    let step = "retrieveContext";
+    let reply: string;
+    let platformMessageId: string | undefined;
+    try {
+      const context = await retrieveContext(orgId, msg.text).catch(() => []);
+      step = "generateReply";
+      reply = await generateReply({
+        orgId,
+        conversationId: convo.id as string,
+        userMessage: msg.text,
+        history: turns,
+        retrievedContext: context,
+        replyInLanguage: detectedLang ?? undefined,
+      });
+      if (!reply) return;
+      step = "sendOutbound";
+      const sent = await sendOutbound({ conversationId: convo.id, text: reply });
+      platformMessageId = sent.platformMessageId;
+    } catch (err) {
+      const detail = `[step=${step}] ${(err as Error).message}`;
+      console.error("[inbound] AI reply failed", detail);
+      await admin.from("audit_logs").insert({
+        org_id: orgId,
+        action: "ai_reply_failed",
+        payload: { conversation_id: convo.id, error: detail, step },
+      });
+      return;
+    }
 
     await admin.from("messages").insert({
       org_id: orgId,

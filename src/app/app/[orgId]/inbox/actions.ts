@@ -288,14 +288,23 @@ export async function generateConversationSummary(formData: FormData) {
   const orgId = formData.get("orgId") as string;
   const conversationId = formData.get("conversationId") as string;
   await requireOrgMember(orgId);
-  const { generateSummary } = await import("@/lib/ai/analysis");
-  const summary = await generateSummary(orgId, conversationId);
-  const admin = createSupabaseAdminClient();
-  await admin
-    .from("conversations")
-    .update({ summary })
-    .eq("id", conversationId)
-    .eq("org_id", orgId);
+  try {
+    const { generateSummary } = await import("@/lib/ai/analysis");
+    const summary = await generateSummary(orgId, conversationId);
+    const admin = createSupabaseAdminClient();
+    await admin
+      .from("conversations")
+      .update({ summary })
+      .eq("id", conversationId)
+      .eq("org_id", orgId);
+  } catch (err) {
+    const admin = createSupabaseAdminClient();
+    await admin.from("audit_logs").insert({
+      org_id: orgId,
+      action: "summary_failed",
+      payload: { conversation_id: conversationId, error: (err as Error).message },
+    });
+  }
   revalidatePath(`/app/${orgId}/inbox`);
 }
 
@@ -305,13 +314,27 @@ export async function refreshSuggestions(formData: FormData) {
   const orgId = formData.get("orgId") as string;
   const conversationId = formData.get("conversationId") as string;
   await requireOrgMember(orgId);
-  const { generateSuggestedReplies } = await import("@/lib/ai/analysis");
-  const suggestions = await generateSuggestedReplies(orgId, conversationId);
-  const admin = createSupabaseAdminClient();
-  await admin.from("suggested_replies").upsert(
-    { org_id: orgId, conversation_id: conversationId, suggestions: suggestions.map((text) => ({ text })) },
-    { onConflict: "conversation_id" },
-  );
+  try {
+    const { generateSuggestedReplies } = await import("@/lib/ai/analysis");
+    const suggestions = await generateSuggestedReplies(orgId, conversationId);
+    const admin = createSupabaseAdminClient();
+    // No unique constraint on conversation_id → use delete + insert rather
+    // than upsert, to avoid "there is no unique or exclusion constraint"
+    // errors from PostgREST.
+    await admin.from("suggested_replies").delete().eq("conversation_id", conversationId);
+    await admin.from("suggested_replies").insert({
+      org_id: orgId,
+      conversation_id: conversationId,
+      suggestions: suggestions.map((text) => ({ text })),
+    });
+  } catch (err) {
+    const admin = createSupabaseAdminClient();
+    await admin.from("audit_logs").insert({
+      org_id: orgId,
+      action: "suggested_replies_failed",
+      payload: { conversation_id: conversationId, error: (err as Error).message },
+    });
+  }
   revalidatePath(`/app/${orgId}/inbox`);
 }
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { RealtimeRefresher } from "@/components/inbox/RealtimeRefresher";
 import { NotificationPrompt } from "@/components/inbox/NotificationPrompt";
+import { Composer } from "@/components/inbox/Composer";
 import {
   sendManualReply, setAiEnabled, addTag, removeTag,
   setConversationStatus, assignConversation, addInternalNote, scheduleMessage,
@@ -388,13 +389,7 @@ export default async function InboxPage({
                 )}
 
                 <div className="flex items-center gap-2 px-4 py-3">
-                  {/* Main reply */}
-                  <form action={sendManualReply} className="flex flex-1 items-center gap-2">
-                    <input type="hidden" name="orgId" value={orgId} />
-                    <input type="hidden" name="conversationId" value={selected.id} />
-                    <input name="text" className="input flex-1 !rounded-full !px-5" placeholder="Type a message..." required autoComplete="off" />
-                    <button className="btn !rounded-full !p-3" type="submit" aria-label="Send"><IconSend className="h-4 w-4" /></button>
-                  </form>
+                  <Composer orgId={orgId} conversationId={selected.id as string} send={sendManualReply} />
                 </div>
 
                 {/* Note + schedule (collapsible) */}
