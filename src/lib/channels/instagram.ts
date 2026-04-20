@@ -51,10 +51,13 @@ export interface InboundInstagramMessage {
 export function parseInstagramWebhook(body: unknown): InboundInstagramMessage[] {
   const out: InboundInstagramMessage[] = [];
   const entries =
-    (body as { entry?: Array<{ id: string; messaging?: IGEvent[] }> }).entry ?? [];
+    (body as { entry?: Array<{ id: string; messaging?: IGEvent[]; standby?: IGEvent[] }> }).entry ?? [];
   for (const entry of entries) {
     const pageId = entry.id;
-    for (const ev of entry.messaging ?? []) {
+    // Primary inbox → "messaging" array; General inbox (handover) → "standby" array.
+    // Same event shape in both; collect from both.
+    const events = [...(entry.messaging ?? []), ...(entry.standby ?? [])];
+    for (const ev of events) {
       if (!ev.message || ev.message.is_echo) continue;
       const text = ev.message.text;
       if (!text) continue;
