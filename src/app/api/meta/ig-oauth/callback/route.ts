@@ -6,9 +6,6 @@ import { getMetaCredentials } from "@/lib/channels/meta-settings";
 
 export const runtime = "nodejs";
 
-const IG = "https://api.instagram.com";
-const GRAPH = "https://graph.instagram.com/v21.0";
-
 function redirectBack(req: NextRequest, orgId: string, status: string, detail?: string) {
   const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
   const url = new URL(`/app/${orgId}/channels`, base);
@@ -19,8 +16,6 @@ function redirectBack(req: NextRequest, orgId: string, status: string, detail?: 
 
 /**
  * Instagram Business Login OAuth callback.
- * Uses the NEW Instagram API (not the classic Facebook Login flow).
- *
  * Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
  */
 export async function GET(req: NextRequest) {
@@ -53,55 +48,76 @@ export async function GET(req: NextRequest) {
     return redirectBack(req, orgId, "error", "Meta app credentials not configured");
   }
 
-  // 1. Short-lived token.
-  const tokenRes = await fetch(`${IG}/oauth/access_token`, {
+  // 1. Short-lived token exchange.
+  const shortBody = new URLSearchParams();
+  shortBody.set("client_id", creds.appId);
+  shortBody.set("client_secret", creds.appSecret);
+  shortBody.set("grant_type", "authorization_code");
+  shortBody.set("redirect_uri", redirectUri);
+  shortBody.set("code", code);
+
+  const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
     method: "POST",
-    body: new URLSearchParams({
-      client_id: creds.appId,
-      client_secret: creds.appSecret,
-      grant_type: "authorization_code",
-      redirect_uri: redirectUri,
-      code,
-    }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: shortBody.toString(),
   });
-  const tokenJson = (await tokenRes.json()) as {
-    access_token?: string;
-    user_id?: number;
-    permissions?: string[];
-    error_type?: string;
-    error_message?: string;
-  };
+  const tokenText = await tokenRes.text();
+  console.log("[ig oauth] short-lived status:", tokenRes.status, "body:", tokenText.slice(0, 300));
+
+  let tokenJson: { access_token?: string; user_id?: number; error_message?: string; error_type?: string };
+  try {
+    tokenJson = JSON.parse(tokenText);
+  } catch {
+    return redirectBack(req, orgId, "error", `Step 1 (short-lived): ${tokenText.slice(0, 100)}`);
+  }
+
   if (!tokenRes.ok || !tokenJson.access_token) {
-    console.error("[ig oauth] short-lived token failed", tokenJson);
-    return redirectBack(req, orgId, "error", tokenJson.error_message ?? "token exchange failed");
+    return redirectBack(req, orgId, "error", `Step 1 (short-lived): ${tokenJson.error_message ?? JSON.stringify(tokenJson).slice(0, 100)}`);
   }
 
-  // 2. Exchange for long-lived token (60 days).
-  // Note: the long-lived exchange endpoint does NOT take a version segment.
-  const longRes = await fetch(
-    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(
-      creds.appSecret,
-    )}&access_token=${encodeURIComponent(tokenJson.access_token)}`,
-  );
-  const longJson = (await longRes.json()) as { access_token?: string; error?: { message: string } };
-  if (longJson.error) {
-    console.error("[ig oauth] long-lived exchange failed", longJson.error);
-  }
-  const longLivedToken = longJson.access_token ?? tokenJson.access_token;
+  // 2. Long-lived token exchange (60 days).
+  const longUrl = new URL("https://graph.instagram.com/access_token");
+  longUrl.searchParams.set("grant_type", "ig_exchange_token");
+  longUrl.searchParams.set("client_secret", creds.appSecret);
+  longUrl.searchParams.set("access_token", tokenJson.access_token);
+  const longRes = await fetch(longUrl.toString());
+  const longText = await longRes.text();
+  console.log("[ig oauth] long-lived status:", longRes.status, "body:", longText.slice(0, 300));
 
-  // 3. Fetch IG user info (no API version in the /me path either).
-  const userRes = await fetch(
-    `https://graph.instagram.com/me?fields=user_id,username,account_type&access_token=${encodeURIComponent(longLivedToken)}`,
-  );
-  const userJson = (await userRes.json()) as {
-    user_id?: string;
-    username?: string;
-    account_type?: string;
-    error?: { message: string };
-  };
-  if (userJson.error || !userJson.user_id) {
-    console.error("[ig oauth] user info failed", userJson);
-    return redirectBack(req, orgId, "error", userJson.error?.message ?? "user info failed");
+  let longLivedToken = tokenJson.access_token;
+  try {
+    const longJson = JSON.parse(longText) as { access_token?: string; error?: { message: string } };
+    if (longJson.access_token) longLivedToken = longJson.access_token;
+    else if (longJson.error) {
+      return redirectBack(req, orgId, "error", `Step 2 (long-lived): ${longJson.error.message}`);
+    }
+  } catch {
+    return redirectBack(req, orgId, "error", `Step 2 parse: ${longText.slice(0, 100)}`);
+  }
+
+  // 3. Fetch IG user info.
+  const userUrl = new URL("https://graph.instagram.com/me");
+  userUrl.searchParams.set("fields", "user_id,username,account_type");
+  userUrl.searchParams.set("access_token", longLivedToken);
+  const userRes = await fetch(userUrl.toString());
+  const userText = await userRes.text();
+  console.log("[ig oauth] /me status:", userRes.status, "body:", userText.slice(0, 300));
+
+  let userJson: { user_id?: string; username?: string; account_type?: string; id?: string; error?: { message: string } };
+  try {
+    userJson = JSON.parse(userText);
+  } catch {
+    return redirectBack(req, orgId, "error", `Step 3 parse: ${userText.slice(0, 100)}`);
+  }
+
+  if (userJson.error) {
+    return redirectBack(req, orgId, "error", `Step 3 (/me): ${userJson.error.message}`);
+  }
+
+  // Some responses use `id` instead of `user_id`.
+  const igUserId = userJson.user_id ?? userJson.id;
+  if (!igUserId) {
+    return redirectBack(req, orgId, "error", `Step 3: no user_id in response: ${userText.slice(0, 100)}`);
   }
 
   // 4. Persist as an Instagram channel.
@@ -111,7 +127,7 @@ export async function GET(req: NextRequest) {
     {
       org_id: orgId,
       platform: "instagram",
-      external_id: userJson.user_id,
+      external_id: igUserId,
       display_name: userJson.username ?? "Instagram",
       access_token_ciphertext: encrypted,
       status: "active",
@@ -119,14 +135,13 @@ export async function GET(req: NextRequest) {
     { onConflict: "external_id" },
   );
   if (upErr) {
-    console.error("[ig oauth] channel upsert failed", upErr);
-    return redirectBack(req, orgId, "error", upErr.message);
+    return redirectBack(req, orgId, "error", `Step 4 (DB): ${upErr.message}`);
   }
 
   await admin.from("audit_logs").insert({
     org_id: orgId,
     action: "instagram_connected",
-    payload: { username: userJson.username, user_id: userJson.user_id },
+    payload: { username: userJson.username, user_id: igUserId },
   }).then(() => {});
 
   return redirectBack(req, orgId, "success", `@${userJson.username}`);
