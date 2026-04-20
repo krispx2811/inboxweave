@@ -27,10 +27,10 @@ export default async function ChannelsPage({
   searchParams,
 }: {
   params: Promise<{ orgId: string }>;
-  searchParams: Promise<{ fb?: string; msg?: string }>;
+  searchParams: Promise<{ fb?: string; ig?: string; msg?: string }>;
 }) {
   const { orgId } = await params;
-  const { fb, msg } = await searchParams;
+  const { fb, ig, msg } = await searchParams;
   const admin = createSupabaseAdminClient();
   const { data: channels } = await admin
     .from("channels")
@@ -48,6 +48,8 @@ export default async function ChannelsPage({
     .maybeSingle();
   const fbAppId = (metaSettings?.app_id as string | undefined) ?? process.env.META_APP_ID;
   const oauthState = Buffer.from(JSON.stringify({ orgId })).toString("base64url");
+
+  // Classic Facebook Login — for Messenger + Pages (requires Facebook Login product).
   const fbLoginUrl =
     fbAppId &&
     `https://www.facebook.com/v21.0/dialog/oauth?` +
@@ -56,6 +58,20 @@ export default async function ChannelsPage({
         redirect_uri: `${appUrl}/api/meta/oauth/callback`,
         state: oauthState,
         scope: "pages_show_list,pages_messaging,pages_manage_metadata,instagram_basic,instagram_manage_messages",
+      }).toString();
+
+  // Instagram Business Login — the new IG API (no Facebook Page required).
+  const igLoginUrl =
+    fbAppId &&
+    `https://www.instagram.com/oauth/authorize?` +
+      new URLSearchParams({
+        enable_fb_login: "0",
+        force_authentication: "1",
+        client_id: fbAppId,
+        redirect_uri: `${appUrl}/api/meta/ig-oauth/callback`,
+        response_type: "code",
+        scope: "instagram_business_basic,instagram_business_manage_messages",
+        state: oauthState,
       }).toString();
 
   return (
@@ -79,6 +95,16 @@ export default async function ChannelsPage({
       {fb === "error" && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <strong>Connection failed.</strong> {msg ?? "Unknown error."} Try again or check the server logs.
+        </div>
+      )}
+      {ig === "success" && (
+        <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <strong>Instagram connected.</strong> {msg ? `Linked ${msg}.` : ""}
+        </div>
+      )}
+      {ig === "error" && (
+        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong>Instagram connection failed.</strong> {msg ?? "Unknown error."}
         </div>
       )}
 
@@ -120,15 +146,40 @@ export default async function ChannelsPage({
         </form>
       </section>
 
-      {/* ── Facebook + Instagram ────────────────────────────── */}
+      {/* ── Instagram Business Login (new API) ──────────────── */}
+      <section className="card mb-4">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-100">
+            <span className="font-bold text-pink-600 text-sm">IG</span>
+          </div>
+          <div>
+            <h2 className="font-semibold">Instagram Business Login</h2>
+            <p className="text-xs text-slate-500">For Instagram Business/Creator accounts (no Facebook Page required)</p>
+          </div>
+        </div>
+        {igLoginUrl ? (
+          <a className="btn" href={igLoginUrl}>
+            <span className="font-bold">IG</span> Connect Instagram
+          </a>
+        ) : (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+            <strong>Meta app not configured.</strong> <a href={`/app/${orgId}/settings/meta`} className="underline font-semibold">Add your Meta app credentials</a> first.
+          </div>
+        )}
+        <p className="mt-3 text-[10px] text-slate-400">
+          Requires <code>instagram_business_basic</code> + <code>instagram_business_manage_messages</code> permissions in your Meta app.
+        </p>
+      </section>
+
+      {/* ── Facebook Login (for Messenger + Pages) ──────────── */}
       <section className="card mb-8">
         <div className="flex items-center gap-3 mb-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
             <IconFacebook className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <h2 className="font-semibold">Facebook Messenger & Instagram</h2>
-            <p className="text-xs text-slate-500">Connect through your Facebook Page</p>
+            <h2 className="font-semibold">Facebook Messenger</h2>
+            <p className="text-xs text-slate-500">Connect Facebook Pages (optionally with linked Instagram)</p>
           </div>
         </div>
         {fbLoginUrl ? (
@@ -137,9 +188,12 @@ export default async function ChannelsPage({
           </a>
         ) : (
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-            <strong>Meta app not configured.</strong> <a href={`/app/${orgId}/settings/meta`} className="underline font-semibold">Add your Meta app credentials</a> first, then come back here to connect your pages.
+            <strong>Meta app not configured.</strong> <a href={`/app/${orgId}/settings/meta`} className="underline font-semibold">Add your Meta app credentials</a> first.
           </div>
         )}
+        <p className="mt-3 text-[10px] text-slate-400">
+          Requires the Facebook Login product in your Meta app with <code>pages_messaging</code> permission.
+        </p>
       </section>
 
       {/* ── Connected channels ──────────────────────────────── */}

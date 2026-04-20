@@ -3,29 +3,36 @@ import "server-only";
 const GRAPH_VERSION = "v21.0";
 
 /**
- * Send an Instagram DM. Instagram messaging uses the same Messenger
- * send-API shape, but the page access token must come from an IG-linked
+ * Send an Instagram DM.
+ *
+ * If `igUserId` is provided, uses the NEW Instagram Business Login API:
+ *   POST https://graph.instagram.com/v21.0/{ig-user-id}/messages
+ *
+ * Otherwise falls back to the Messenger-style /me/messages endpoint on
+ * graph.facebook.com, which requires a Page access token from an IG-linked
  * Facebook Page.
  */
 export async function sendInstagramText(params: {
   pageAccessToken: string;
   recipientId: string;
   text: string;
+  igUserId?: string;
 }): Promise<{ messageId?: string }> {
-  const res = await fetch(
-    `https://graph.facebook.com/${GRAPH_VERSION}/me/messages?access_token=${encodeURIComponent(
-      params.pageAccessToken,
-    )}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        recipient: { id: params.recipientId },
-        messaging_type: "RESPONSE",
-        message: { text: params.text },
-      }),
+  const url = params.igUserId
+    ? `https://graph.instagram.com/${GRAPH_VERSION}/${params.igUserId}/messages`
+    : `https://graph.facebook.com/${GRAPH_VERSION}/me/messages`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${params.pageAccessToken}`,
     },
-  );
+    body: JSON.stringify({
+      recipient: { id: params.recipientId },
+      message: { text: params.text },
+    }),
+  });
   const json = (await res.json().catch(() => ({}))) as {
     message_id?: string;
     error?: { message: string };
