@@ -45,9 +45,14 @@ export async function GET(req: NextRequest) {
   }
 
   // If this callback was triggered by an Instagram Business Login, delegate
-  // to the IG handler by forwarding the same query params.
+  // to the IG handler by forwarding the same query params. IMPORTANT: use
+  // NEXT_PUBLIC_APP_URL as the base (not req.url) because Netlify's internal
+  // routing surfaces the deploy-preview hostname in req.url even when the
+  // user hit inboxweave.com — which would kick them to a hostname where
+  // their session cookie doesn't exist.
   if (flow === "ig") {
-    const forward = new URL("/api/meta/ig-oauth/callback", req.url);
+    const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+    const forward = new URL("/api/meta/ig-oauth/callback", base);
     forward.search = new URL(req.url).search;
     return NextResponse.redirect(forward);
   }
