@@ -26,6 +26,17 @@ const STOP_CONFIRMATION =
 const START_CONFIRMATION =
   "Auto-Reply is back on. How can I help?" + AI_FOOTER;
 
+/**
+ * Remove any trailing footer the model may have generated (copy-catting from
+ * prior assistant messages). Tolerant of whitespace, punctuation variants,
+ * and multiple stacked footers.
+ */
+function stripFooter(text: string): string {
+  const footerPattern =
+    /(\s*[—–\-]*\s*(?:type\s+)?stop\s+to\s+stop\s+ai\s+messages\s+or\s+start\s+to\s+turn\s+(?:it|auto[-\s]?reply)\s+back\s+on[.!]?\s*)+$/i;
+  return text.replace(footerPattern, "").trimEnd();
+}
+
 export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   const admin = createSupabaseAdminClient();
 
@@ -218,9 +229,11 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         replyInLanguage: detectedLang ?? undefined,
       });
       if (!reply) return;
-      reply = reply + AI_FOOTER;
+      // Defensive: strip any footer the model may have mimicked from prior
+      // assistant messages before we append our canonical one.
+      reply = stripFooter(reply);
       step = "sendOutbound";
-      const sent = await sendOutbound({ conversationId: convo.id, text: reply });
+      const sent = await sendOutbound({ conversationId: convo.id, text: reply + AI_FOOTER });
       platformMessageId = sent.platformMessageId;
     } catch (err) {
       const detail = `[step=${step}] ${(err as Error).message}`;
@@ -233,6 +246,9 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       return;
     }
 
+    // Persist the bare reply (without the footer) so the next turn's
+    // conversation history stays clean and the model doesn't learn to
+    // repeat the footer.
     await admin.from("messages").insert({
       org_id: orgId,
       conversation_id: convo.id,
