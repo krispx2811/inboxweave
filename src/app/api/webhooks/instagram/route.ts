@@ -67,16 +67,28 @@ export async function POST(req: NextRequest) {
   const firstPageId = messages[0]!.pageId;
   const orgId = await findOrgByChannelExternalId(firstPageId);
 
-  let appSecret = process.env.META_APP_SECRET;
-  if (orgId) {
-    const creds = await getMetaCredentials(orgId, "ig");
-    if (creds) appSecret = creds.appSecret;
+  // No channel matches this external_id. Most likely this is Meta's Test
+  // button (which sends entry.id = "0") or a webhook for an account that
+  // hasn't been connected yet. Ack with 200 so Meta doesn't retry; log for
+  // debugging.
+  if (!orgId) {
+    logWebhookDebug({
+      platform: "instagram", method: "POST", statusCode: 200,
+      parsedCount: messages.length, rawBody: raw,
+      error: `no channel matches external_id=${firstPageId} — test payload or disconnected account?`,
+    });
+    return NextResponse.json({ ok: true, note: "no matching channel" });
   }
+
+  let appSecret = process.env.META_APP_SECRET;
+  const creds = await getMetaCredentials(orgId, "ig");
+  if (creds) appSecret = creds.appSecret;
+
   if (!appSecret) {
     logWebhookDebug({
       platform: "instagram", method: "POST", statusCode: 500,
       parsedCount: messages.length, orgId, rawBody: raw,
-      error: `no app secret for org=${orgId ?? "unknown"}, channel external_id=${firstPageId}`,
+      error: `no app secret configured for org=${orgId}`,
     });
     return new NextResponse("not configured", { status: 500 });
   }

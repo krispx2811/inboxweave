@@ -46,7 +46,11 @@ export async function GET(req: NextRequest) {
   await requireOrgMember(orgId);
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
-  const redirectUri = `${appUrl}/api/meta/ig-oauth/callback`;
+  // IMPORTANT: This MUST match the redirect_uri that was used in the original
+  // OAuth authorize URL (built in channels/page.tsx). Meta verifies they are
+  // byte-for-byte identical when exchanging the code for a token.
+  // The /oauth/callback route dispatches to this handler when state.flow=ig.
+  const redirectUri = `${appUrl}/api/meta/oauth/callback`;
 
   const creds = await getMetaCredentials(orgId, "ig");
   if (!creds) {
