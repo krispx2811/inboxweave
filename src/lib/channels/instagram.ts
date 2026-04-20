@@ -5,32 +5,33 @@ const GRAPH_VERSION = "v21.0";
 /**
  * Send an Instagram DM.
  *
- * If `igUserId` is provided, uses the NEW Instagram Business Login API:
- *   POST https://graph.instagram.com/v21.0/{ig-user-id}/messages
+ * Uses the Instagram Business Login API format:
+ *   POST https://graph.instagram.com/v21.0/me/messages
+ *   Body: { recipient: {id}, message: {text}, access_token }
  *
- * Otherwise falls back to the Messenger-style /me/messages endpoint on
- * graph.facebook.com, which requires a Page access token from an IG-linked
- * Facebook Page.
+ * (Note: access_token goes in the JSON BODY, not a header or query param —
+ * this is the working pattern for IG Business Login tokens.)
+ *
+ * If `useFacebookGraph` is passed (legacy page access token from Facebook
+ * Login flow), falls back to graph.facebook.com.
  */
 export async function sendInstagramText(params: {
   pageAccessToken: string;
   recipientId: string;
   text: string;
   igUserId?: string;
+  useFacebookGraph?: boolean;
 }): Promise<{ messageId?: string }> {
-  const url = params.igUserId
-    ? `https://graph.instagram.com/${GRAPH_VERSION}/${params.igUserId}/messages`
-    : `https://graph.facebook.com/${GRAPH_VERSION}/me/messages`;
+  const host = params.useFacebookGraph ? "graph.facebook.com" : "graph.instagram.com";
+  const url = `https://${host}/${GRAPH_VERSION}/me/messages`;
 
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.pageAccessToken}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       recipient: { id: params.recipientId },
       message: { text: params.text },
+      access_token: params.pageAccessToken,
     }),
   });
   const json = (await res.json().catch(() => ({}))) as {

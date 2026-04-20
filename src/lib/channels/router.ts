@@ -53,15 +53,14 @@ export async function sendOutbound(params: {
     return { platformMessageId: messageId, platform: "messenger" };
   }
   if (channel.platform === "instagram") {
-    // When external_id is all digits and short (IG User ID from Business
-    // Login), use the new IG Graph API. Otherwise fall back to Messenger-
-    // style endpoint (classic Facebook Login flow).
-    const isBusinessLoginIg = /^\d{1,20}$/.test(channel.external_id as string);
+    // IG Business Login tokens start with "IGAA"; Page tokens from classic
+    // Facebook Login look different. Route to the correct host accordingly.
+    const isIgBusinessToken = token.startsWith("IGA");
     const { messageId } = await sendInstagramText({
       pageAccessToken: token,
       recipientId: convo.contact_external_id,
       text: params.text,
-      igUserId: isBusinessLoginIg ? (channel.external_id as string) : undefined,
+      useFacebookGraph: !isIgBusinessToken,
     });
     return { platformMessageId: messageId, platform: "instagram" };
   }

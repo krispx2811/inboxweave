@@ -111,20 +111,21 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Step 3: best-effort fetch username so the channel has a nice label.
-  // Failures here don't block the connection.
+  // The working pattern is graph.instagram.com/v21.0/{id} with access_token
+  // as a query param (same host + version used for /me/messages).
   let username: string | undefined;
   for (const base of [
-    `https://graph.instagram.com/${igUserId}`,
-    `https://graph.facebook.com/${igUserId}`,
     `https://graph.instagram.com/v21.0/${igUserId}`,
+    `https://graph.instagram.com/v21.0/me`,
+    `https://graph.instagram.com/${igUserId}`,
   ]) {
     try {
       const u = new URL(base);
-      u.searchParams.set("fields", "username");
+      u.searchParams.set("fields", "username,name,profile_picture_url");
       u.searchParams.set("access_token", accessToken);
       const r = await fetch(u.toString());
       const t = await r.text();
-      console.log("[ig oauth] username fetch", base, r.status, t.slice(0, 150));
+      console.log("[ig oauth] username fetch", base, r.status, t.slice(0, 200));
       const j = JSON.parse(t) as { username?: string };
       if (j.username) { username = j.username; break; }
     } catch {
