@@ -75,24 +75,25 @@ export async function GET(req: NextRequest) {
     return redirectBack(req, orgId, "error", `Step 1 (short-lived): ${tokenJson.error_message ?? JSON.stringify(tokenJson).slice(0, 100)}`);
   }
 
-  // 2. Long-lived token exchange (60 days).
-  const longUrl = new URL("https://graph.instagram.com/access_token");
-  longUrl.searchParams.set("grant_type", "ig_exchange_token");
-  longUrl.searchParams.set("client_secret", creds.appSecret);
-  longUrl.searchParams.set("access_token", tokenJson.access_token);
-  const longRes = await fetch(longUrl.toString());
-  const longText = await longRes.text();
-  console.log("[ig oauth] long-lived status:", longRes.status, "body:", longText.slice(0, 300));
-
+  // 2. Long-lived token exchange (60 days). Best-effort — if it fails we
+  // fall back to the short-lived token (valid ~1 hour) so connection still
+  // succeeds. We retry both graph.instagram.com and graph.facebook.com
+  // because Meta has moved endpoints over time.
   let longLivedToken = tokenJson.access_token;
-  try {
-    const longJson = JSON.parse(longText) as { access_token?: string; error?: { message: string } };
-    if (longJson.access_token) longLivedToken = longJson.access_token;
-    else if (longJson.error) {
-      return redirectBack(req, orgId, "error", `Step 2 (long-lived): ${longJson.error.message}`);
+  for (const host of ["graph.instagram.com", "graph.facebook.com"]) {
+    const longUrl = new URL(`https://${host}/access_token`);
+    longUrl.searchParams.set("grant_type", "ig_exchange_token");
+    longUrl.searchParams.set("client_secret", creds.appSecret);
+    longUrl.searchParams.set("access_token", tokenJson.access_token);
+    try {
+      const longRes = await fetch(longUrl.toString());
+      const longText = await longRes.text();
+      console.log(`[ig oauth] long-lived (${host}) status:`, longRes.status, "body:", longText.slice(0, 200));
+      const longJson = JSON.parse(longText) as { access_token?: string; error?: unknown };
+      if (longJson.access_token) { longLivedToken = longJson.access_token; break; }
+    } catch (err) {
+      console.log(`[ig oauth] long-lived (${host}) threw:`, (err as Error).message);
     }
-  } catch {
-    return redirectBack(req, orgId, "error", `Step 2 parse: ${longText.slice(0, 100)}`);
   }
 
   // 3. Fetch IG user info.
