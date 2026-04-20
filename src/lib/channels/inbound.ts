@@ -41,9 +41,11 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     console.warn(`[inbound] no channel for ${msg.platform} external_id=${msg.channelExternalId}; ignoring`);
     return;
   }
-  if (channel.status !== "active") return;
 
   const orgId = channel.org_id as string;
+  // Note: we process the message even if channel.status !== "active" (e.g. the
+  // token is invalidated). Persisting the inbound so agents can see it in the
+  // inbox is more important than the auto-reply; AI sends are gated below.
 
   // 2. Upsert conversation.
   const { data: convo, error: convErr } = await admin
@@ -174,8 +176,16 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
-  // 7. AI reply, if enabled and there is text.
+  // 7. AI reply, if enabled, channel healthy, and there is text.
   if (!convo.ai_enabled || !msg.text) return;
+  if (channel.status !== "active") {
+    await admin.from("audit_logs").insert({
+      org_id: orgId,
+      action: "ai_reply_skipped",
+      payload: { conversation_id: convo.id, reason: "channel_status", status: channel.status },
+    });
+    return;
+  }
 
   try {
     const { data: history } = await admin
