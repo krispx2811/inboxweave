@@ -40,13 +40,20 @@ export default async function ChannelsPage({
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
 
-  // Prefer per-org Meta app; fall back to global env.
+  // Read per-org app IDs (separate for Instagram vs Facebook).
   const { data: metaSettings } = await admin
     .from("meta_settings")
-    .select("app_id")
+    .select("app_id, fb_app_id, ig_app_id")
     .eq("org_id", orgId)
     .maybeSingle();
-  const fbAppId = (metaSettings?.app_id as string | undefined) ?? process.env.META_APP_ID;
+  const fbAppId =
+    (metaSettings?.fb_app_id as string | undefined) ??
+    (metaSettings?.app_id as string | undefined) ??
+    process.env.META_APP_ID;
+  const igAppId =
+    (metaSettings?.ig_app_id as string | undefined) ??
+    (metaSettings?.app_id as string | undefined) ??
+    process.env.META_APP_ID;
   const oauthState = Buffer.from(JSON.stringify({ orgId })).toString("base64url");
 
   // Classic Facebook Login — for Messenger + Pages (requires Facebook Login product).
@@ -62,12 +69,12 @@ export default async function ChannelsPage({
 
   // Instagram Business Login — the new IG API (no Facebook Page required).
   const igLoginUrl =
-    fbAppId &&
+    igAppId &&
     `https://www.instagram.com/oauth/authorize?` +
       new URLSearchParams({
         enable_fb_login: "0",
         force_authentication: "1",
-        client_id: fbAppId,
+        client_id: igAppId,
         redirect_uri: `${appUrl}/api/meta/ig-oauth/callback`,
         response_type: "code",
         scope: "instagram_business_basic,instagram_business_manage_messages",

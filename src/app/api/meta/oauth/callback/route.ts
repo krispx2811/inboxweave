@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   // Prefer per-org Meta credentials; fall back to global env for backwards
   // compatibility with single-tenant deployments.
-  const orgCreds = await getMetaCredentials(orgId);
+  const orgCreds = await getMetaCredentials(orgId, "fb");
   const appId = orgCreds?.appId ?? process.env.META_APP_ID;
   const appSecret = orgCreds?.appSecret ?? process.env.META_APP_SECRET;
   if (!appId || !appSecret) {

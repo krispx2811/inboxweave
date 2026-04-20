@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const redirectUri = `${appUrl}/api/meta/ig-oauth/callback`;
 
-  const creds = await getMetaCredentials(orgId);
+  const creds = await getMetaCredentials(orgId, "ig");
   if (!creds) {
     return redirectBack(req, orgId, "error", "Meta app credentials not configured");
   }

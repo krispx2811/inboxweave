@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   // Resolve the signing secret: prefer per-org, fall back to global env.
   let appSecret = process.env.META_APP_SECRET;
   if (orgId) {
-    const creds = await getMetaCredentials(orgId);
+    const creds = await getMetaCredentials(orgId, "fb");
     if (creds) appSecret = creds.appSecret;
   }
   if (!appSecret) {

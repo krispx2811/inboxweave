@@ -1,6 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { saveMetaSettings } from "./actions";
-import { IconFacebook } from "@/components/icons";
+import { saveFacebookCreds, saveInstagramCreds, saveVerifyToken } from "./actions";
+import { IconFacebook, IconInstagram } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +11,9 @@ export default async function MetaSettingsPage({
 }) {
   const { orgId } = await params;
 
-  // Defensive DB read — don't crash the page if the table is missing or
-  // the service role key isn't set; surface a clear error instead.
   interface MetaRow {
-    app_id: string | null;
+    ig_app_id: string | null;
+    fb_app_id: string | null;
     webhook_verify_token: string | null;
     updated_at: string | null;
   }
@@ -24,7 +23,7 @@ export default async function MetaSettingsPage({
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from("meta_settings")
-      .select("app_id, webhook_verify_token, updated_at")
+      .select("ig_app_id, fb_app_id, webhook_verify_token, updated_at")
       .eq("org_id", orgId)
       .maybeSingle();
     if (error) dbError = error.message;
@@ -34,103 +33,126 @@ export default async function MetaSettingsPage({
   }
 
   const secretsKeyMissing = !process.env.SECRETS_ENCRYPTION_KEY;
-
-  const configured = Boolean(settings?.app_id);
+  const igConfigured = Boolean(settings?.ig_app_id);
+  const fbConfigured = Boolean(settings?.fb_app_id);
+  const verifyTokenSet = Boolean(settings?.webhook_verify_token);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
-  const webhookUrls = {
-    whatsapp: `${appUrl}/api/webhooks/whatsapp`,
-    messenger: `${appUrl}/api/webhooks/messenger`,
-    instagram: `${appUrl}/api/webhooks/instagram`,
-  };
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <div className="page-header">
         <h1>Meta App Credentials</h1>
-        <p>Connect your own Meta developer app to enable WhatsApp, Instagram, and Messenger</p>
+        <p>Instagram and Facebook/Messenger/WhatsApp use different app IDs. Configure whichever you need.</p>
       </div>
 
       {dbError && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <strong>Database error:</strong> {dbError}
-          <div className="mt-2 text-xs">
-            This usually means the <code>meta_settings</code> table hasn&apos;t been created yet, or the
-            <code> SUPABASE_SERVICE_ROLE_KEY</code> environment variable is missing on your deployment.
-          </div>
         </div>
       )}
-
       {secretsKeyMissing && (
         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>Encryption key not set.</strong> <code>SECRETS_ENCRYPTION_KEY</code> is missing from
-          your environment. Saving credentials will fail until you set it. Generate one with
-          <code className="ml-1">openssl rand -hex 32</code> and add it to your env.
+          <strong>Encryption key not set.</strong> Set <code>SECRETS_ENCRYPTION_KEY</code> in your env.
         </div>
       )}
 
+      {/* ── Shared verify token ─────────────────────────────── */}
+      <section className="card mb-6">
+        <h2 className="font-semibold mb-1">Webhook Verify Token</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Any random string. Use the same value in every Meta webhook you register below.
+          {verifyTokenSet && <span className="ml-1 text-emerald-600">✓ set</span>}
+        </p>
+        <form action={saveVerifyToken} className="flex gap-2">
+          <input type="hidden" name="orgId" value={orgId} />
+          <input
+            className="input flex-1"
+            name="verifyToken"
+            defaultValue={settings?.webhook_verify_token ?? ""}
+            placeholder="e.g. openssl rand -hex 16"
+            required
+          />
+          <button className="btn" type="submit" disabled={secretsKeyMissing}>Save</button>
+        </form>
+      </section>
+
+      {/* ── Instagram Business Login creds ─────────────────── */}
+      <section className="card mb-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-100">
+            <IconInstagram className="h-5 w-5 text-pink-600" />
+          </div>
+          <div>
+            <h2 className="font-semibold">Instagram Business Login</h2>
+            <p className="text-xs text-slate-500">
+              {igConfigured ? (
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                  Configured: <code className="font-mono">{settings!.ig_app_id}</code>
+                </span>
+              ) : (
+                "Instagram app ID + secret (from Meta dashboard → your app → Instagram → API setup)"
+              )}
+            </p>
+          </div>
+        </div>
+        <form action={saveInstagramCreds} className="space-y-4">
+          <input type="hidden" name="orgId" value={orgId} />
+          <div>
+            <label className="label">Instagram App ID</label>
+            <input className="input" name="igAppId" defaultValue={settings?.ig_app_id ?? ""} placeholder="e.g. 971510478670500" required />
+          </div>
+          <div>
+            <label className="label">Instagram App Secret</label>
+            <input className="input" name="igAppSecret" type="password" placeholder="Paste to save (encrypted)" required autoComplete="off" />
+          </div>
+          <button className="btn" disabled={secretsKeyMissing}>Save Instagram credentials</button>
+        </form>
+        <div className="mt-4 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600">
+          <div className="font-semibold">Webhook setup in Meta:</div>
+          <div>Callback: <code className="font-mono break-all">{appUrl}/api/webhooks/instagram</code></div>
+          <div>OAuth redirect: <code className="font-mono break-all">{appUrl}/api/meta/ig-oauth/callback</code></div>
+          <div>Subscribe to: <strong>messages</strong></div>
+        </div>
+      </section>
+
+      {/* ── Facebook / Messenger / WhatsApp creds ──────────── */}
       <section className="card mb-6">
         <div className="flex items-center gap-3 mb-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
             <IconFacebook className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <h2 className="font-semibold">Your Meta App</h2>
+            <h2 className="font-semibold">Facebook, Messenger & WhatsApp</h2>
             <p className="text-xs text-slate-500">
-              {configured ? (
+              {fbConfigured ? (
                 <span className="flex items-center gap-1">
                   <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                  Configured with App ID: <code className="font-mono">{settings!.app_id}</code>
+                  Configured: <code className="font-mono">{settings!.fb_app_id}</code>
                 </span>
               ) : (
-                "Paste your credentials from the Meta Developer dashboard"
+                "Meta app ID + secret (from Meta dashboard → App Settings → Basic)"
               )}
             </p>
           </div>
         </div>
-
-        <form action={saveMetaSettings} className="space-y-4">
+        <form action={saveFacebookCreds} className="space-y-4">
           <input type="hidden" name="orgId" value={orgId} />
           <div>
-            <label className="label">App ID</label>
-            <input className="input" name="appId" defaultValue={settings?.app_id ?? ""} placeholder="e.g. 123456789012345" autoComplete="off" required />
-            <p className="mt-1 text-[10px] text-slate-400">From Meta Developer dashboard → your app → Settings → Basic</p>
+            <label className="label">Meta App ID</label>
+            <input className="input" name="fbAppId" defaultValue={settings?.fb_app_id ?? ""} placeholder="e.g. 1468866668112411" required />
           </div>
           <div>
-            <label className="label">App Secret</label>
-            <input className="input" name="appSecret" type="password" placeholder="Paste new secret to save" required autoComplete="off" />
-            <p className="mt-1 text-[10px] text-slate-400">Same page as App ID. Click &ldquo;Show&rdquo; next to App Secret. Encrypted on save.</p>
+            <label className="label">Meta App Secret</label>
+            <input className="input" name="fbAppSecret" type="password" placeholder="Paste to save (encrypted)" required autoComplete="off" />
           </div>
-          <div>
-            <label className="label">Webhook Verify Token</label>
-            <input className="input" name="verifyToken" defaultValue={settings?.webhook_verify_token ?? ""} placeholder="A random string you choose" required />
-            <p className="mt-1 text-[10px] text-slate-400">Any random string (e.g. generated with <code>openssl rand -hex 16</code>). You&apos;ll use the same value in Meta&apos;s webhook setup.</p>
-          </div>
-          <button className="btn" disabled={secretsKeyMissing}>
-            {secretsKeyMissing ? "Set SECRETS_ENCRYPTION_KEY to enable" : "Save Meta credentials"}
-          </button>
+          <button className="btn" disabled={secretsKeyMissing}>Save Meta credentials</button>
         </form>
-      </section>
-
-      <section className="card">
-        <h2 className="font-semibold mb-1">Setup steps</h2>
-        <p className="text-xs text-slate-500 mb-4">Once you save your credentials above, configure these webhook URLs in the Meta Developer dashboard:</p>
-        <div className="space-y-3">
-          {[
-            { label: "WhatsApp", url: webhookUrls.whatsapp, events: "messages" },
-            { label: "Messenger", url: webhookUrls.messenger, events: "messages, messaging_postbacks" },
-            { label: "Instagram", url: webhookUrls.instagram, events: "messages" },
-          ].map(({ label, url, events }) => (
-            <div key={label} className="rounded-lg bg-slate-50 p-3">
-              <div className="text-sm font-semibold mb-1">{label}</div>
-              <div className="text-[11px] text-slate-500">Callback URL:</div>
-              <code className="block mt-0.5 text-[11px] font-mono text-slate-700 break-all">{url}</code>
-              <div className="mt-1.5 text-[11px] text-slate-500">Subscribe to: <span className="text-slate-700">{events}</span></div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-          <strong>Tip:</strong> Use the same verify token you saved above when registering each webhook.
-          See the <a href="/guides" className="underline">Setup Guides</a> for step-by-step instructions.
+        <div className="mt-4 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600">
+          <div className="font-semibold">Webhook setup in Meta:</div>
+          <div>Messenger: <code className="font-mono break-all">{appUrl}/api/webhooks/messenger</code></div>
+          <div>WhatsApp: <code className="font-mono break-all">{appUrl}/api/webhooks/whatsapp</code></div>
+          <div>OAuth redirect: <code className="font-mono break-all">{appUrl}/api/meta/oauth/callback</code></div>
         </div>
       </section>
     </main>

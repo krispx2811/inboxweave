@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   let appSecret = process.env.META_APP_SECRET;
   if (orgId) {
-    const creds = await getMetaCredentials(orgId);
+    const creds = await getMetaCredentials(orgId, "fb");
     if (creds) appSecret = creds.appSecret;
   }
   if (!appSecret) return new NextResponse("not configured", { status: 500 });
