@@ -77,17 +77,21 @@ export async function GET(req: NextRequest) {
   }
 
   // 2. Exchange for long-lived token (60 days).
+  // Note: the long-lived exchange endpoint does NOT take a version segment.
   const longRes = await fetch(
-    `${GRAPH}/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(
+    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(
       creds.appSecret,
     )}&access_token=${encodeURIComponent(tokenJson.access_token)}`,
   );
   const longJson = (await longRes.json()) as { access_token?: string; error?: { message: string } };
+  if (longJson.error) {
+    console.error("[ig oauth] long-lived exchange failed", longJson.error);
+  }
   const longLivedToken = longJson.access_token ?? tokenJson.access_token;
 
-  // 3. Fetch IG user info.
+  // 3. Fetch IG user info (no API version in the /me path either).
   const userRes = await fetch(
-    `${GRAPH}/me?fields=user_id,username,account_type&access_token=${encodeURIComponent(longLivedToken)}`,
+    `https://graph.instagram.com/me?fields=user_id,username,account_type&access_token=${encodeURIComponent(longLivedToken)}`,
   );
   const userJson = (await userRes.json()) as {
     user_id?: string;
