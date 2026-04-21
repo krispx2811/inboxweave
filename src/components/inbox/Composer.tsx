@@ -23,6 +23,7 @@ interface ComposerProps {
  */
 export function Composer({ orgId, conversationId, send }: ComposerProps) {
   const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const inFlight = useRef(false);
   const router = useRouter();
@@ -32,6 +33,7 @@ export function Composer({ orgId, conversationId, send }: ComposerProps) {
     const value = text.trim();
     if (!value || inFlight.current) return;
     inFlight.current = true;
+    setError(null);
 
     // Clear the input immediately — optimistic UX.
     setText("");
@@ -45,6 +47,15 @@ export function Composer({ orgId, conversationId, send }: ComposerProps) {
       try {
         await send(form);
         router.refresh();
+      } catch (err) {
+        // Surface errors so silent failures don't look like "nothing happened".
+        // NEXT_REDIRECT is a framework signal, not a real error — ignore.
+        const msg = (err as Error)?.message ?? String(err);
+        if (!msg.includes("NEXT_REDIRECT")) {
+          console.error("[Composer] send failed", err);
+          setError(msg);
+          setText(value); // Restore text so user can retry / copy.
+        }
       } finally {
         inFlight.current = false;
       }
@@ -60,24 +71,31 @@ export function Composer({ orgId, conversationId, send }: ComposerProps) {
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-1 items-center gap-2">
-      <input
-        className="input flex-1 !rounded-full !px-5"
-        placeholder={isPending ? "Sending..." : "Type a message..."}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        autoComplete="off"
-        disabled={isPending}
-      />
-      <button
-        type="submit"
-        className="btn !rounded-full !p-3"
-        aria-label="Send"
-        disabled={isPending || !text.trim()}
-      >
-        <IconSend className="h-4 w-4" />
-      </button>
-    </form>
+    <div className="flex-1">
+      <form onSubmit={submit} className="flex items-center gap-2">
+        <input
+          className="input flex-1 !rounded-full !px-5"
+          placeholder={isPending ? "Sending..." : "Type a message..."}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          autoComplete="off"
+          disabled={isPending}
+        />
+        <button
+          type="submit"
+          className="btn !rounded-full !p-3"
+          aria-label="Send"
+          disabled={isPending || !text.trim()}
+        >
+          <IconSend className="h-4 w-4" />
+        </button>
+      </form>
+      {error && (
+        <div className="mt-1 text-xs text-red-600 truncate" title={error}>
+          Send failed: {error}
+        </div>
+      )}
+    </div>
   );
 }
