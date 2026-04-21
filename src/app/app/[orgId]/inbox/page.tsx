@@ -25,7 +25,32 @@ function timeAgo(d: string): string {
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export default async function InboxPage({
+export default async function InboxPage(props: {
+  params: Promise<{ orgId: string }>;
+  searchParams: Promise<Search>;
+}) {
+  try {
+    return await renderInbox(props);
+  } catch (err) {
+    // Log the actual error to audit_logs so we can diagnose from outside
+    // without relying on Netlify function logs. Then rethrow with a message
+    // that includes the original so /inbox/error.tsx can show something useful.
+    const { orgId } = await props.params;
+    const message = (err as Error)?.message ?? String(err);
+    const stack = ((err as Error)?.stack ?? "").slice(0, 1000);
+    try {
+      const admin = createSupabaseAdminClient();
+      await admin.from("audit_logs").insert({
+        org_id: orgId,
+        action: "inbox_render_error",
+        payload: { message, stack, ts: new Date().toISOString() },
+      });
+    } catch {}
+    throw new Error(`[inbox] ${message}`);
+  }
+}
+
+async function renderInbox({
   params, searchParams,
 }: {
   params: Promise<{ orgId: string }>;
