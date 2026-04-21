@@ -5,7 +5,11 @@ import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendOutbound } from "@/lib/channels/router";
-import { detectStopStart } from "@/lib/channels/commands";
+import {
+  detectStopStart,
+  startConfirmation,
+  stopConfirmation,
+} from "@/lib/channels/commands";
 
 const ToggleSchema = z.object({
   orgId: z.string().uuid(),
@@ -59,22 +63,68 @@ export async function sendManualReply(formData: FormData) {
 
   // Agent-side stop/start commands: typing just "stop" / "start" (or the
   // Arabic equivalents like إيقاف / ابدأ) in the composer toggles AI auto-
-  // reply for this conversation. Mirrors the customer-side opt-out so the
-  // owner can take over a chat without the AI interfering. The word itself
-  // is NOT sent to the customer — it's treated as a control command.
+  // reply for this conversation. When the state actually changes we ALSO
+  // send a confirmation message to the customer so they know a human has
+  // taken over (or that AI is back on). The command word itself is never
+  // sent as-is — only the localized confirmation.
   const command = detectStopStart(parsed.text);
   if (command) {
     const enabled = command === "start";
+
+    // Look up the conversation's current state + language so we can decide
+    // whether to send a confirmation and in which language.
+    const { data: convoState } = await admin
+      .from("conversations")
+      .select("ai_enabled, language")
+      .eq("id", parsed.conversationId)
+      .eq("org_id", parsed.orgId)
+      .maybeSingle();
+    const alreadyInState = convoState?.ai_enabled === enabled;
+    const lang: "ar" | "en" = convoState?.language === "ar" ? "ar" : "en";
+
+    // Flip the flag first so an in-flight inbound handler sees the new value.
     await admin
       .from("conversations")
       .update({ ai_enabled: enabled })
       .eq("id", parsed.conversationId)
       .eq("org_id", parsed.orgId);
+
+    // Only send a confirmation if the state actually changed — avoids
+    // spamming the customer when the owner re-types stop/start.
+    if (!alreadyInState) {
+      const confirmation = enabled ? startConfirmation(lang) : stopConfirmation(lang);
+      try {
+        const { platformMessageId } = await sendOutbound({
+          conversationId: parsed.conversationId,
+          text: confirmation,
+        });
+        await admin.from("messages").insert({
+          org_id: parsed.orgId,
+          conversation_id: parsed.conversationId,
+          direction: "out",
+          sender: "ai",
+          content: confirmation,
+          platform_message_id: platformMessageId ?? null,
+        });
+        await admin
+          .from("conversations")
+          .update({ last_message_at: new Date().toISOString() })
+          .eq("id", parsed.conversationId);
+      } catch (err) {
+        console.error("[manual] stop/start confirmation send failed", err);
+      }
+    }
+
     await admin.from("audit_logs").insert({
       org_id: parsed.orgId,
       user_id: ctx.userId,
       action: enabled ? "ai_enabled" : "ai_disabled",
-      payload: { conversation_id: parsed.conversationId, reason: "agent_typed_command" },
+      payload: {
+        conversation_id: parsed.conversationId,
+        reason: "agent_typed_command",
+        language: lang,
+        already_in_state: alreadyInState,
+      },
     });
     revalidatePath(`/app/${parsed.orgId}/inbox`);
     return;
