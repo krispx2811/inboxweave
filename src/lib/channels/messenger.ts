@@ -59,6 +59,7 @@ export interface InboundMessengerMessage {
   senderPsid: string;
   text: string;
   platformMessageId?: string;
+  isEcho?: boolean;
 }
 
 export function parseMessengerWebhook(body: unknown): InboundMessengerMessage[] {
@@ -71,15 +72,26 @@ export function parseMessengerWebhook(body: unknown): InboundMessengerMessage[] 
   for (const entry of entries) {
     const pageId = entry.id;
     for (const ev of entry.messaging ?? []) {
-      if (!ev.message || ev.message.is_echo) continue;
+      if (!ev.message) continue;
       const text = ev.message.text;
       if (!text) continue;
-      out.push({
-        pageId,
-        senderPsid: ev.sender.id,
-        text,
-        platformMessageId: ev.message.mid,
-      });
+      if (ev.message.is_echo) {
+        // Page-owner reply from Messenger app directly.
+        out.push({
+          pageId,
+          senderPsid: ev.recipient.id,
+          text,
+          platformMessageId: ev.message.mid,
+          isEcho: true,
+        });
+      } else {
+        out.push({
+          pageId,
+          senderPsid: ev.sender.id,
+          text,
+          platformMessageId: ev.message.mid,
+        });
+      }
     }
   }
   return out;

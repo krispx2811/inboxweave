@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifyMetaSignatureWithSecret } from "@/lib/channels/signature";
 import { parseMessengerWebhook } from "@/lib/channels/messenger";
 import { handleInbound } from "@/lib/channels/inbound";
+import { handleOwnerEcho } from "@/lib/channels/echo";
 import {
   findOrgByChannelExternalId,
   findOrgByVerifyToken,
@@ -54,13 +55,23 @@ export async function POST(req: NextRequest) {
   }
 
   for (const m of messages) {
-    await handleInbound({
-      platform: "messenger",
-      channelExternalId: m.pageId,
-      contactExternalId: m.senderPsid,
-      text: m.text,
-      platformMessageId: m.platformMessageId,
-    }).catch((err) => console.error("[messenger webhook] handleInbound failed", err));
+    if (m.isEcho) {
+      await handleOwnerEcho({
+        platform: "messenger",
+        channelExternalId: m.pageId,
+        contactExternalId: m.senderPsid,
+        text: m.text,
+        platformMessageId: m.platformMessageId,
+      }).catch((err) => console.error("[messenger webhook] handleOwnerEcho failed", err));
+    } else {
+      await handleInbound({
+        platform: "messenger",
+        channelExternalId: m.pageId,
+        contactExternalId: m.senderPsid,
+        text: m.text,
+        platformMessageId: m.platformMessageId,
+      }).catch((err) => console.error("[messenger webhook] handleInbound failed", err));
+    }
   }
   return NextResponse.json({ ok: true });
 }

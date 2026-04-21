@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifyMetaSignatureWithSecret } from "@/lib/channels/signature";
 import { parseInstagramWebhook } from "@/lib/channels/instagram";
 import { handleInbound } from "@/lib/channels/inbound";
+import { handleOwnerEcho } from "@/lib/channels/echo";
 import {
   findOrgByChannelExternalId,
   findOrgByVerifyToken,
@@ -103,13 +104,25 @@ export async function POST(req: NextRequest) {
   if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
 
   for (const m of messages) {
-    await handleInbound({
-      platform: "instagram",
-      channelExternalId: m.pageId,
-      contactExternalId: m.senderId,
-      text: m.text,
-      platformMessageId: m.platformMessageId,
-    }).catch((err) => console.error("[instagram webhook] handleInbound failed", err));
+    if (m.isEcho) {
+      // Owner replied from the IG app directly. Record it in the inbox
+      // and act on stop/start commands (pause/resume AI).
+      await handleOwnerEcho({
+        platform: "instagram",
+        channelExternalId: m.pageId,
+        contactExternalId: m.senderId,
+        text: m.text,
+        platformMessageId: m.platformMessageId,
+      }).catch((err) => console.error("[instagram webhook] handleOwnerEcho failed", err));
+    } else {
+      await handleInbound({
+        platform: "instagram",
+        channelExternalId: m.pageId,
+        contactExternalId: m.senderId,
+        text: m.text,
+        platformMessageId: m.platformMessageId,
+      }).catch((err) => console.error("[instagram webhook] handleInbound failed", err));
+    }
   }
   return NextResponse.json({ ok: true });
 }
