@@ -306,6 +306,22 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
+  // Refresh the typing indicator — Meta auto-clears it after ~5-20s and
+  // our debounce + RAG + generation can take 6-10s total, which would make
+  // the bubble disappear before the real reply arrives. Calling typing_on
+  // again here resets the clear timer so it stays visible until the
+  // message itself supersedes it.
+  if (
+    channel.status === "active" &&
+    (channel.platform === "instagram" || channel.platform === "messenger")
+  ) {
+    sendTypingIndicatorFast({
+      platform: channel.platform as string,
+      accessTokenCiphertext: channel.access_token_ciphertext as string,
+      contactExternalId: msg.contactExternalId,
+    }).catch(() => {});
+  }
+
   // Build the unified user message: all IN messages since the last OUT.
   // This way a burst of ["hi", "for lasik", "how much?"] is answered as
   // one coherent reply instead of three disjoint ones.
