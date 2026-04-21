@@ -56,6 +56,28 @@ export async function sendManualReply(formData: FormData) {
     .single();
   if (!convo || convo.org_id !== parsed.orgId) throw new Error("Conversation not found");
 
+  // Agent-side stop/start commands: typing just "stop" or "start" in the
+  // composer toggles AI auto-reply for this conversation (mirrors the
+  // customer-side behaviour). The word itself is NOT sent to the customer —
+  // it's treated as a control command.
+  const command = parsed.text.trim().toLowerCase();
+  if (command === "stop" || command === "start") {
+    const enabled = command === "start";
+    await admin
+      .from("conversations")
+      .update({ ai_enabled: enabled })
+      .eq("id", parsed.conversationId)
+      .eq("org_id", parsed.orgId);
+    await admin.from("audit_logs").insert({
+      org_id: parsed.orgId,
+      user_id: ctx.userId,
+      action: enabled ? "ai_enabled" : "ai_disabled",
+      payload: { conversation_id: parsed.conversationId, reason: "agent_typed_command" },
+    });
+    revalidatePath(`/app/${parsed.orgId}/inbox`);
+    return;
+  }
+
   const { platformMessageId } = await sendOutbound({
     conversationId: parsed.conversationId,
     text: parsed.text,
