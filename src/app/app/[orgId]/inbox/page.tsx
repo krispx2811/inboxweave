@@ -155,14 +155,29 @@ async function renderInbox({
                 </Link>
               ))}
               {allTags.length > 0 && (
-                <select
-                  className="rounded-full border-0 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500"
-                  defaultValue={filterTag ?? ""}
-                  onChange={(e) => { /* Server-side: using JS navigation */ }}
-                >
-                  <option value="">All tags</option>
-                  {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <>
+                  {filterTag && (
+                    <Link
+                      href={`/app/${orgId}/inbox?${new URLSearchParams({ ...(q ? { q } : {}), ...(filterStatus ? { status: filterStatus } : {}) }).toString()}`}
+                      className="rounded-full px-2.5 py-1 text-[10px] font-semibold bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    >
+                      clear tag ×
+                    </Link>
+                  )}
+                  {allTags.slice(0, 6).map((t) => (
+                    <Link
+                      key={t}
+                      href={`/app/${orgId}/inbox?${new URLSearchParams({ ...(q ? { q } : {}), ...(filterStatus ? { status: filterStatus } : {}), tag: t }).toString()}`}
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+                        filterTag === t
+                          ? "bg-indigo-100 text-indigo-700"
+                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      }`}
+                    >
+                      #{t}
+                    </Link>
+                  ))}
+                </>
               )}
             </div>
           </div>
