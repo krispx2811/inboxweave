@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { deleteKnowledgeDoc, updateKnowledgeDoc } from "../actions";
 import { IconKnowledge, IconTrash } from "@/components/icons";
+import { SaveButton } from "./SaveButton";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,13 @@ function statusBadge(status: string) {
 
 export default async function KnowledgeDocPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgId: string; docId: string }>;
+  searchParams: Promise<{ saved?: string }>;
 }) {
   const { orgId, docId } = await params;
+  const { saved } = await searchParams;
   const admin = createSupabaseAdminClient();
 
   const { data: doc } = await admin
@@ -81,6 +85,28 @@ export default async function KnowledgeDocPage({
           {chunkCount ?? 0} chunks · created {new Date(doc.created_at as string).toLocaleDateString()}
         </p>
       </div>
+
+      {saved && (
+        <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 flex items-start gap-2">
+          <span aria-hidden>✓</span>
+          <div>
+            <strong>
+              {saved === "reembedded"
+                ? "Saved. Content re-chunked and re-embedded."
+                : saved === "title"
+                  ? "Title saved."
+                  : saved === "nochange"
+                    ? "No changes to save."
+                    : "Saved."}
+            </strong>
+            {saved === "reembedded" && (
+              <span className="block text-xs text-emerald-700 mt-0.5">
+                The AI will use the updated knowledge on the next reply.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {doc.error && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -142,7 +168,7 @@ export default async function KnowledgeDocPage({
             </p>
           </div>
 
-          <button className="btn" type="submit">Save changes</button>
+          <SaveButton />
         </form>
 
         <div className="mt-6 pt-5 border-t border-slate-200">

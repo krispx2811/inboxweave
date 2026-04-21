@@ -141,7 +141,7 @@ export async function updateKnowledgeDoc(formData: FormData) {
   if (!titleChanged && !contentChanged) {
     revalidatePath(`/app/${parsed.orgId}/knowledge`);
     revalidatePath(`/app/${parsed.orgId}/knowledge/${parsed.documentId}`);
-    return;
+    redirect(`/app/${parsed.orgId}/knowledge/${parsed.documentId}?saved=nochange`);
   }
 
   await admin
@@ -189,6 +189,8 @@ export async function updateKnowledgeDoc(formData: FormData) {
 
   revalidatePath(`/app/${parsed.orgId}/knowledge`);
   revalidatePath(`/app/${parsed.orgId}/knowledge/${parsed.documentId}`);
+  const flag = contentChanged ? "reembedded" : "title";
+  redirect(`/app/${parsed.orgId}/knowledge/${parsed.documentId}?saved=${flag}`);
 }
 
 const DeleteSchema = z.object({
