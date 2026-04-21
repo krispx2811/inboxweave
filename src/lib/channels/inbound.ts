@@ -286,6 +286,26 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
+  // Re-check ai_enabled after the debounce — the owner may have typed
+  // "stop" in the inbox composer or toggled the Pause AI button while we
+  // were waiting. Also catches sentiment-based auto-escalation.
+  const { data: freshConvo } = await admin
+    .from("conversations")
+    .select("ai_enabled")
+    .eq("id", convo.id)
+    .maybeSingle();
+  if (!freshConvo?.ai_enabled) {
+    await admin.from("audit_logs").insert({
+      org_id: orgId,
+      action: "ai_reply_skipped",
+      payload: {
+        conversation_id: convo.id,
+        reason: "ai_disabled_during_debounce",
+      },
+    });
+    return;
+  }
+
   // Build the unified user message: all IN messages since the last OUT.
   // This way a burst of ["hi", "for lasik", "how much?"] is answered as
   // one coherent reply instead of three disjoint ones.
