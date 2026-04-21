@@ -4,6 +4,8 @@ import type { ChannelPlatform } from "@/lib/supabase/types";
 import { generateReply, detectLanguage } from "@/lib/ai/openai";
 import { retrieveContext } from "@/lib/ai/rag";
 import { analyzeSentiment } from "@/lib/ai/analysis";
+import { classifyConversation } from "@/lib/ai/classify";
+import { getContactMemory } from "@/lib/ai/contact-memory";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
@@ -165,9 +167,28 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       await admin.from("conversations").update(updates).eq("id", convo.id);
     }).catch(() => {});
 
+    // Auto-classify (topic + priority). Also merges category into tags so
+    // the existing tag UI shows it; priority drives inbox sorting.
+    const classifyPromise = classifyConversation(orgId, msg.text).then(async (cls) => {
+      const { data: current } = await admin
+        .from("conversations")
+        .select("tags")
+        .eq("id", convo.id)
+        .maybeSingle();
+      const currentTags = (current?.tags as string[] | null) ?? [];
+      const tags = currentTags.includes(cls.category)
+        ? currentTags
+        : [...currentTags, cls.category];
+      await admin
+        .from("conversations")
+        .update({ category: cls.category, priority: cls.priority, tags })
+        .eq("id", convo.id);
+    }).catch(() => {});
+
     // Don't await these — fire and forget.
     void langPromise;
     void sentimentPromise;
+    void classifyPromise;
   }
 
   // 6. Handle stop/start opt-out commands from the contact.
@@ -278,7 +299,16 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     try {
       const retrievalQuery =
         msg.text.trim().length < 25 && turns.length > 0 ? recentText : msg.text;
-      const context = await retrieveContext(orgId, retrievalQuery).catch(() => []);
+      // Fetch RAG context and past-conversation memory in parallel.
+      const [context, contactMemory] = await Promise.all([
+        retrieveContext(orgId, retrievalQuery).catch(() => [] as string[]),
+        getContactMemory(
+          orgId,
+          channel.id as string,
+          msg.contactExternalId,
+          convo.id as string,
+        ).catch(() => [] as string[]),
+      ]);
       step = "generateReply";
       reply = await generateReply({
         orgId,
@@ -286,6 +316,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         userMessage: msg.text,
         history: turns,
         retrievedContext: context,
+        contactMemory,
         replyInLanguage: detectedLang ?? undefined,
       });
       if (!reply) return;

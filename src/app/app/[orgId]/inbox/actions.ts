@@ -184,6 +184,19 @@ export async function setConversationStatus(formData: FormData) {
     import("@/lib/webhooks/dispatch").then(({ dispatchWebhookEvent }) =>
       dispatchWebhookEvent({ orgId: parsed.orgId, event: "conversation.resolved", payload: { conversation_id: parsed.conversationId } })
     ).catch(() => {});
+
+    // Auto-generate a summary so the next time this contact messages, the
+    // AI has context from the resolved conversation (cross-conversation memory).
+    import("@/lib/ai/analysis").then(async ({ generateSummary }) => {
+      try {
+        const summary = await generateSummary(parsed.orgId, parsed.conversationId);
+        await admin
+          .from("conversations")
+          .update({ summary })
+          .eq("id", parsed.conversationId)
+          .eq("org_id", parsed.orgId);
+      } catch {}
+    }).catch(() => {});
   }
   revalidatePath(`/app/${parsed.orgId}/inbox`);
 }

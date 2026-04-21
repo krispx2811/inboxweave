@@ -38,7 +38,7 @@ export default async function InboxPage({
   // Conversations query with filters.
   let convQuery = admin
     .from("conversations")
-    .select("id, contact_name, contact_external_id, ai_enabled, last_message_at, channel_id, tags, status, assigned_user_id, language, sentiment, sentiment_score, summary, is_pinned, is_escalated, read_at, channels(platform, display_name)")
+    .select("id, contact_name, contact_external_id, ai_enabled, last_message_at, channel_id, tags, status, assigned_user_id, language, sentiment, sentiment_score, summary, is_pinned, is_escalated, read_at, priority, category, channels(platform, display_name)")
     .eq("org_id", orgId)
     .order("last_message_at", { ascending: false })
     .limit(100);
@@ -47,7 +47,18 @@ export default async function InboxPage({
   if (filterStatus) convQuery = convQuery.eq("status", filterStatus);
   if (filterTag) convQuery = convQuery.contains("tags", [filterTag]);
 
-  const { data: conversations } = await convQuery;
+  const { data: rawConversations } = await convQuery;
+
+  // Sort: pinned first, then priority (urgent → normal → low), then recency.
+  const priorityRank: Record<string, number> = { urgent: 0, normal: 1, low: 2 };
+  const conversations = (rawConversations ?? []).slice().sort((a, b) => {
+    const pinDiff = Number(b.is_pinned ?? false) - Number(a.is_pinned ?? false);
+    if (pinDiff !== 0) return pinDiff;
+    const prA = priorityRank[(a.priority as string) ?? "normal"] ?? 1;
+    const prB = priorityRank[(b.priority as string) ?? "normal"] ?? 1;
+    if (prA !== prB) return prA - prB;
+    return new Date(b.last_message_at as string).getTime() - new Date(a.last_message_at as string).getTime();
+  });
 
   const selected = selectedId ? conversations?.find((c) => c.id === selectedId) ?? conversations?.[0] : conversations?.[0];
 
@@ -152,6 +163,9 @@ export default async function InboxPage({
                       <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">{timeAgo(c.last_message_at as string)}</span>
                     </div>
                     <div className="mt-0.5 flex items-center gap-1 flex-wrap">
+                      {(c.priority as string) === "urgent" && (
+                        <span className="badge-red !py-0 !px-1.5 !text-[10px] font-semibold">Urgent</span>
+                      )}
                       <span className={`${platformBadge(ch?.platform)} !py-0 !px-1.5 !text-[10px]`}>{ch?.platform}</span>
                       {c.language && <span className="badge-gray !py-0 !px-1 !text-[10px]">{c.language}</span>}
                       {!c.ai_enabled && <span className="badge-amber !py-0 !px-1.5 !text-[10px]">AI off</span>}

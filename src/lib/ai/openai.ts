@@ -139,6 +139,7 @@ export async function generateReply(params: {
   userMessage: string;
   history: ChatTurn[];
   retrievedContext: string[];
+  contactMemory?: string[];
   replyInLanguage?: string;
 }): Promise<string> {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
@@ -147,6 +148,11 @@ export async function generateReply(params: {
   const contextBlock =
     params.retrievedContext.length > 0
       ? `\n\nYou have access to the following knowledge about this business. Use it when relevant; do not invent facts beyond it:\n---\n${params.retrievedContext.join("\n---\n")}\n---`
+      : "";
+
+  const memoryBlock =
+    params.contactMemory && params.contactMemory.length > 0
+      ? `\n\nYou have spoken with this customer before. Use these past summaries as background — reference them naturally when relevant but do not re-introduce topics the customer hasn't asked about:\n${params.contactMemory.join("\n")}`
       : "";
 
   const languageInstruction = params.replyInLanguage
@@ -166,7 +172,7 @@ export async function generateReply(params: {
     model,
     temperature: settings.temperature,
     messages: [
-      { role: "system", content: settings.system_prompt + contextBlock + languageInstruction + contextInstruction },
+      { role: "system", content: settings.system_prompt + memoryBlock + contextBlock + languageInstruction + contextInstruction },
       ...params.history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: params.userMessage },
     ],
