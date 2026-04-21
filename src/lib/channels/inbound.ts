@@ -246,21 +246,39 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       .select("direction, sender, content, created_at")
       .eq("conversation_id", convo.id)
       .order("created_at", { ascending: false })
-      .limit(12);
+      .limit(24);
 
     const turns = (history ?? [])
       .reverse()
       .slice(0, -1)
       .map((m) => ({
         role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
-        content: m.content as string,
+        // Strip any legacy Stop/Start footer from past assistant messages so
+        // the model gets a clean view of the conversation.
+        content:
+          m.direction === "in"
+            ? (m.content as string)
+            : stripFooter(m.content as string),
       }));
+
+    // Build a context-aware RAG query from the last few turns so follow-ups
+    // like "its for lasik" (after "what is the consultation?") retrieve the
+    // right chunks. We prioritise the most recent user message but include
+    // the preceding exchange for short/vague follow-ups.
+    const recentText = turns
+      .slice(-4)
+      .map((t) => t.content)
+      .concat(msg.text)
+      .join(" \n ")
+      .slice(0, 1500);
 
     let step = "retrieveContext";
     let reply: string;
     let platformMessageId: string | undefined;
     try {
-      const context = await retrieveContext(orgId, msg.text).catch(() => []);
+      const retrievalQuery =
+        msg.text.trim().length < 25 && turns.length > 0 ? recentText : msg.text;
+      const context = await retrieveContext(orgId, retrievalQuery).catch(() => []);
       step = "generateReply";
       reply = await generateReply({
         orgId,

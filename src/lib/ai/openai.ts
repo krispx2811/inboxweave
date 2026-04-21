@@ -153,13 +153,20 @@ export async function generateReply(params: {
     ? `\n\nIMPORTANT: Always reply in ${params.replyInLanguage}. Match the customer's language.`
     : "\n\nIMPORTANT: Detect the customer's language and always reply in the same language they use.";
 
+  const contextInstruction =
+    "\n\nIMPORTANT: Read the entire conversation history carefully before replying. " +
+    "Treat short or vague follow-up messages (e.g. 'its for lasik', 'yes', 'how much?', " +
+    "'the second one') as continuations of the previous topic — use what the customer " +
+    "said earlier to resolve what they're asking about now. If context is genuinely " +
+    "ambiguous, ask one clarifying question instead of guessing.";
+
   const model = settings.model || "gpt-4o-mini";
   const result = await chatCompletion({
     apiKey,
     model,
     temperature: settings.temperature,
     messages: [
-      { role: "system", content: settings.system_prompt + contextBlock + languageInstruction },
+      { role: "system", content: settings.system_prompt + contextBlock + languageInstruction + contextInstruction },
       ...params.history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: params.userMessage },
     ],
