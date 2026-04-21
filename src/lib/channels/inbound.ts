@@ -9,6 +9,14 @@ import { getContactMemory } from "@/lib/ai/contact-memory";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
+import {
+  aiFooter,
+  detectStopStart,
+  primaryLanguage,
+  startConfirmation,
+  stopConfirmation,
+  stripAnyFooter,
+} from "./commands";
 
 export interface NormalizedInbound {
   platform: ChannelPlatform;
@@ -22,23 +30,9 @@ export interface NormalizedInbound {
   mediaMime?: string;
 }
 
-const AI_FOOTER =
-  "\n\n—\nType Stop to stop AI messages or Start to turn it back on";
-const STOP_CONFIRMATION =
-  "Auto-Reply has been stopped. A team member will respond to you shortly, type Start to turn auto-reply back on.";
-const START_CONFIRMATION =
-  "Auto-Reply is back on. How can I help?" + AI_FOOTER;
-
-/**
- * Remove any trailing footer the model may have generated (copy-catting from
- * prior assistant messages). Tolerant of whitespace, punctuation variants,
- * and multiple stacked footers.
- */
-function stripFooter(text: string): string {
-  const footerPattern =
-    /(\s*[—–\-]*\s*(?:type\s+)?stop\s+to\s+stop\s+ai\s+messages\s+or\s+start\s+to\s+turn\s+(?:it|auto[-\s]?reply)\s+back\s+on[.!]?\s*)+$/i;
-  return text.replace(footerPattern, "").trimEnd();
-}
+// Legacy names retained to keep fewer call sites changing. Real implementations
+// live in commands.ts and are bilingual (English + Arabic).
+const stripFooter = stripAnyFooter;
 
 export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   const admin = createSupabaseAdminClient();
@@ -120,18 +114,22 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   if (convErr || !convo) throw new Error(convErr?.message ?? "Failed to upsert conversation");
 
   // 3. Persist inbound message (with optional media).
-  const { error: msgErr } = await admin.from("messages").insert({
-    org_id: orgId,
-    conversation_id: convo.id,
-    direction: "in",
-    sender: "contact",
-    content: msg.text || (msg.mediaType ? `[${msg.mediaType}]` : "[media]"),
-    platform_message_id: msg.platformMessageId ?? null,
-    media_url: msg.mediaUrl ?? null,
-    media_type: msg.mediaType ?? null,
-    media_mime: msg.mediaMime ?? null,
-  });
-  if (msgErr) throw new Error(msgErr.message);
+  const { data: insertedMsg, error: msgErr } = await admin
+    .from("messages")
+    .insert({
+      org_id: orgId,
+      conversation_id: convo.id,
+      direction: "in",
+      sender: "contact",
+      content: msg.text || (msg.mediaType ? `[${msg.mediaType}]` : "[media]"),
+      platform_message_id: msg.platformMessageId ?? null,
+      media_url: msg.mediaUrl ?? null,
+      media_type: msg.mediaType ?? null,
+      media_mime: msg.mediaMime ?? null,
+    })
+    .select("id, created_at")
+    .single();
+  if (msgErr || !insertedMsg) throw new Error(msgErr?.message ?? "Failed to insert message");
 
   // 4. Fire inbound webhook event (non-blocking).
   dispatchWebhookEvent({
@@ -191,19 +189,23 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     void classifyPromise;
   }
 
-  // 6. Handle stop/start opt-out commands from the contact.
-  const command = msg.text?.trim().toLowerCase();
+  // 6. Handle stop/start opt-out commands from the contact. Supports English
+  // ("stop"/"start") and Arabic ("إيقاف"/"ابدأ" and common variants).
+  // Confirmation language matches the language the customer used.
+  const command = detectStopStart(msg.text);
   if (command === "stop") {
     if (convo.ai_enabled) {
+      const lang = primaryLanguage(msg.text, (detectedLang as "ar" | "en") ?? "en");
+      const confirmation = stopConfirmation(lang);
       await admin.from("conversations").update({ ai_enabled: false }).eq("id", convo.id);
       try {
-        const sent = await sendOutbound({ conversationId: convo.id, text: STOP_CONFIRMATION });
+        const sent = await sendOutbound({ conversationId: convo.id, text: confirmation });
         await admin.from("messages").insert({
           org_id: orgId,
           conversation_id: convo.id,
           direction: "out",
           sender: "ai",
-          content: STOP_CONFIRMATION,
+          content: confirmation,
           platform_message_id: sent.platformMessageId ?? null,
         });
         await admin
@@ -216,22 +218,24 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       await admin.from("audit_logs").insert({
         org_id: orgId,
         action: "ai_auto_disabled",
-        payload: { conversation_id: convo.id, reason: "contact_typed_stop" },
+        payload: { conversation_id: convo.id, reason: "contact_typed_stop", language: lang },
       });
     }
     return;
   }
   if (command === "start") {
     if (!convo.ai_enabled) {
+      const lang = primaryLanguage(msg.text, (detectedLang as "ar" | "en") ?? "en");
+      const confirmation = startConfirmation(lang);
       await admin.from("conversations").update({ ai_enabled: true }).eq("id", convo.id);
       try {
-        const sent = await sendOutbound({ conversationId: convo.id, text: START_CONFIRMATION });
+        const sent = await sendOutbound({ conversationId: convo.id, text: confirmation });
         await admin.from("messages").insert({
           org_id: orgId,
           conversation_id: convo.id,
           direction: "out",
           sender: "ai",
-          content: START_CONFIRMATION,
+          content: confirmation,
           platform_message_id: sent.platformMessageId ?? null,
         });
         await admin
@@ -244,7 +248,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       await admin.from("audit_logs").insert({
         org_id: orgId,
         action: "ai_auto_enabled",
-        payload: { conversation_id: convo.id, reason: "contact_typed_start" },
+        payload: { conversation_id: convo.id, reason: "contact_typed_start", language: lang },
       });
     }
     return;
@@ -260,6 +264,43 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     });
     return;
   }
+
+  // Debounce: customers often send multiple quick messages in a burst
+  // ("hi", "im interested in lasik", "how much?"). Wait 3s, then check if
+  // another inbound arrived. If it did, that handler will take over — we
+  // bail out. Only the handler for the LAST message in a burst generates
+  // a unified reply across the whole burst.
+  await new Promise((r) => setTimeout(r, 3000));
+
+  const { data: newestIn } = await admin
+    .from("messages")
+    .select("id, created_at")
+    .eq("conversation_id", convo.id)
+    .eq("direction", "in")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (newestIn && newestIn.id !== insertedMsg.id) {
+    // A newer inbound arrived during our debounce — yield to its handler.
+    return;
+  }
+
+  // Build the unified user message: all IN messages since the last OUT.
+  // This way a burst of ["hi", "for lasik", "how much?"] is answered as
+  // one coherent reply instead of three disjoint ones.
+  const { data: sinceLastOut } = await admin
+    .from("messages")
+    .select("direction, content, created_at")
+    .eq("conversation_id", convo.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const burst: string[] = [];
+  for (const m of sinceLastOut ?? []) {
+    if (m.direction === "out") break;
+    if (m.direction === "in" && m.content) burst.unshift(m.content as string);
+  }
+  const unifiedUserMessage = burst.length > 1 ? burst.join("\n") : msg.text;
 
   try {
     const { data: history } = await admin
@@ -282,14 +323,19 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
             : stripFooter(m.content as string),
       }));
 
+    // Trim the last N burst messages off the history tail since we're
+    // sending them as the current user_message instead.
+    const turnsWithoutBurst =
+      burst.length > 1 ? turns.slice(0, -(burst.length - 1)) : turns;
+
     // Build a context-aware RAG query from the last few turns so follow-ups
     // like "its for lasik" (after "what is the consultation?") retrieve the
-    // right chunks. We prioritise the most recent user message but include
-    // the preceding exchange for short/vague follow-ups.
-    const recentText = turns
+    // right chunks. We prioritise the current (possibly burst-unified)
+    // message but include the preceding exchange for short/vague follow-ups.
+    const recentText = turnsWithoutBurst
       .slice(-4)
       .map((t) => t.content)
-      .concat(msg.text)
+      .concat(unifiedUserMessage)
       .join(" \n ")
       .slice(0, 1500);
 
@@ -298,7 +344,9 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     let platformMessageId: string | undefined;
     try {
       const retrievalQuery =
-        msg.text.trim().length < 25 && turns.length > 0 ? recentText : msg.text;
+        unifiedUserMessage.trim().length < 25 && turnsWithoutBurst.length > 0
+          ? recentText
+          : unifiedUserMessage;
       // Fetch RAG context and past-conversation memory in parallel.
       const [context, contactMemory] = await Promise.all([
         retrieveContext(orgId, retrievalQuery).catch(() => [] as string[]),
@@ -313,8 +361,8 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       reply = await generateReply({
         orgId,
         conversationId: convo.id as string,
-        userMessage: msg.text,
-        history: turns,
+        userMessage: unifiedUserMessage,
+        history: turnsWithoutBurst,
         retrievedContext: context,
         contactMemory,
         replyInLanguage: detectedLang ?? undefined,
@@ -324,7 +372,15 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       // assistant messages before we append our canonical one.
       reply = stripFooter(reply);
       step = "sendOutbound";
-      const sent = await sendOutbound({ conversationId: convo.id, text: reply + AI_FOOTER });
+      // Pick footer language to match the customer's language.
+      const footerLang = primaryLanguage(
+        unifiedUserMessage,
+        (detectedLang as "ar" | "en") ?? "en",
+      );
+      const sent = await sendOutbound({
+        conversationId: convo.id,
+        text: reply + aiFooter(footerLang),
+      });
       platformMessageId = sent.platformMessageId;
     } catch (err) {
       const detail = `[step=${step}] ${(err as Error).message}`;

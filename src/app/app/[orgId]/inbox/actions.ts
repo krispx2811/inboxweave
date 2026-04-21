@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendOutbound } from "@/lib/channels/router";
+import { detectStopStart } from "@/lib/channels/commands";
 
 const ToggleSchema = z.object({
   orgId: z.string().uuid(),
@@ -56,12 +57,13 @@ export async function sendManualReply(formData: FormData) {
     .single();
   if (!convo || convo.org_id !== parsed.orgId) throw new Error("Conversation not found");
 
-  // Agent-side stop/start commands: typing just "stop" or "start" in the
-  // composer toggles AI auto-reply for this conversation (mirrors the
-  // customer-side behaviour). The word itself is NOT sent to the customer —
-  // it's treated as a control command.
-  const command = parsed.text.trim().toLowerCase();
-  if (command === "stop" || command === "start") {
+  // Agent-side stop/start commands: typing just "stop" / "start" (or the
+  // Arabic equivalents like إيقاف / ابدأ) in the composer toggles AI auto-
+  // reply for this conversation. Mirrors the customer-side opt-out so the
+  // owner can take over a chat without the AI interfering. The word itself
+  // is NOT sent to the customer — it's treated as a control command.
+  const command = detectStopStart(parsed.text);
+  if (command) {
     const enabled = command === "start";
     await admin
       .from("conversations")

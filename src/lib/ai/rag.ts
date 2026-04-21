@@ -38,19 +38,33 @@ async function expandCrossLingualQuery(orgId: string, query: string): Promise<st
   }
 }
 
-export async function retrieveContext(orgId: string, query: string, limit = 5): Promise<string[]> {
+export async function retrieveContext(orgId: string, query: string, limit = 8): Promise<string[]> {
   const expanded = await expandCrossLingualQuery(orgId, query);
   const embedding = await embedText(orgId, expanded);
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin.rpc("match_knowledge_chunks", {
+
+  // Hybrid search: vector similarity + keyword BM25-style match, merged via
+  // Reciprocal Rank Fusion in the RPC. Catches exact-match queries (prices,
+  // service codes, specific terms) that pure embedding search misses.
+  const { data, error } = await admin.rpc("match_knowledge_chunks_hybrid", {
     p_org_id: orgId,
     p_query: embedding,
+    p_query_text: expanded,
     p_limit: limit,
   });
+
   if (error) {
-    console.error("[rag] retrieval failed", error);
-    return [];
+    // Fallback to pure vector search if the hybrid RPC isn't available yet
+    // (e.g. migration 0011 not applied, or FTS query parse error on edge cases).
+    console.error("[rag] hybrid failed, falling back to vector", error);
+    const { data: fallback } = await admin.rpc("match_knowledge_chunks", {
+      p_org_id: orgId,
+      p_query: embedding,
+      p_limit: limit,
+    });
+    return (fallback ?? []).map((row: { content: string }) => row.content);
   }
+
   return (data ?? []).map((row: { content: string }) => row.content);
 }
 
