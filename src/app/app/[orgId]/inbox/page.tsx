@@ -83,11 +83,16 @@ export default async function InboxPage({
   const members = membersRes.data ?? [];
   const suggestions = ((suggestRes.data?.suggestions as Array<{ text: string }>) ?? []).map((s) => s.text);
 
-  // Member emails for assignment.
+  // Member emails for assignment. Defensive: if the service role ever loses
+  // auth admin access, don't let it crash the whole inbox render.
   const emailMap = new Map<string, string>();
   if (members.length > 0) {
-    const { data: users } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-    for (const u of users?.users ?? []) emailMap.set(u.id, u.email ?? u.id);
+    try {
+      const { data: users } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+      for (const u of users?.users ?? []) emailMap.set(u.id, u.email ?? u.id);
+    } catch (err) {
+      console.error("[inbox] listUsers failed (non-fatal)", err);
+    }
   }
 
   // All tags in use.

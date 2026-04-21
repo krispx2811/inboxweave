@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { IconSend } from "@/components/icons";
 
 interface ComposerProps {
@@ -11,91 +11,62 @@ interface ComposerProps {
 }
 
 /**
- * Controlled chat input with:
- * - Immediate clearing of the field on submit (doesn't wait for server)
- * - Button disabled while sending, to prevent double-submit
- * - Key guard against Enter firing while already sending
- * - router.refresh() after the action to pick up the server-persisted row
- *
- * Realtime will also refresh soon after the DB insert, so this gives a
- * smooth experience — the field clears instantly, the message appears
- * within a couple hundred ms, and the user can type their next line.
+ * Inbox composer. Uses the native Next.js 15 `<form action={serverAction}>`
+ * pattern — the form element submits the action directly, ensuring the
+ * server action is always invoked whether the user clicks Send or hits
+ * Enter. Keeps an optimistic clear of the input on submit by resetting
+ * the form in the button's onClick.
  */
 export function Composer({ orgId, conversationId, send }: ComposerProps) {
   const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const inFlight = useRef(false);
-  const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
 
-  function submit(e?: React.FormEvent) {
-    e?.preventDefault();
-    const value = text.trim();
-    if (!value || inFlight.current) return;
-    inFlight.current = true;
-    setError(null);
-
-    // Clear the input immediately — optimistic UX.
+  function handleAction(formData: FormData) {
+    // Optimistic: clear the visible input right when the submit starts,
+    // before the server round-trip completes.
     setText("");
-
-    const form = new FormData();
-    form.set("orgId", orgId);
-    form.set("conversationId", conversationId);
-    form.set("text", value);
-
-    startTransition(async () => {
-      try {
-        await send(form);
-        router.refresh();
-      } catch (err) {
-        // Surface errors so silent failures don't look like "nothing happened".
-        // NEXT_REDIRECT is a framework signal, not a real error — ignore.
-        const msg = (err as Error)?.message ?? String(err);
-        if (!msg.includes("NEXT_REDIRECT")) {
-          console.error("[Composer] send failed", err);
-          setError(msg);
-          setText(value); // Restore text so user can retry / copy.
-        }
-      } finally {
-        inFlight.current = false;
-      }
-    });
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    // Enter sends; Shift+Enter would be a newline (but this is single-line).
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
+    return send(formData);
   }
 
   return (
-    <div className="flex-1">
-      <form onSubmit={submit} className="flex items-center gap-2">
-        <input
-          className="input flex-1 !rounded-full !px-5"
-          placeholder={isPending ? "Sending..." : "Type a message..."}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          autoComplete="off"
-          disabled={isPending}
-        />
-        <button
-          type="submit"
-          className="btn !rounded-full !p-3"
-          aria-label="Send"
-          disabled={isPending || !text.trim()}
-        >
-          <IconSend className="h-4 w-4" />
-        </button>
-      </form>
-      {error && (
-        <div className="mt-1 text-xs text-red-600 truncate" title={error}>
-          Send failed: {error}
-        </div>
-      )}
-    </div>
+    <form
+      ref={formRef}
+      action={handleAction}
+      className="flex flex-1 items-center gap-2"
+    >
+      <input type="hidden" name="orgId" value={orgId} />
+      <input type="hidden" name="conversationId" value={conversationId} />
+      <ComposerInput text={text} setText={setText} />
+      <ComposerSubmit disabled={!text.trim()} />
+    </form>
+  );
+}
+
+function ComposerInput({ text, setText }: { text: string; setText: (v: string) => void }) {
+  const { pending } = useFormStatus();
+  return (
+    <input
+      className="input flex-1 !rounded-full !px-5"
+      name="text"
+      placeholder={pending ? "Sending..." : "Type a message..."}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      autoComplete="off"
+      disabled={pending}
+    />
+  );
+}
+
+function ComposerSubmit({ disabled }: { disabled: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      className="btn !rounded-full !p-3"
+      aria-label="Send"
+      disabled={pending || disabled}
+    >
+      <IconSend className="h-4 w-4" />
+    </button>
   );
 }
