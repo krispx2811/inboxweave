@@ -5,7 +5,7 @@
 -- and process their messages through the normal inbound pipeline.
 
 alter table public.channels
-  add column if not exists auto_accept_requests boolean not null default false,
+  add column if not exists auto_accept_requests boolean not null default true,
   add column if not exists last_request_poll_at timestamptz;
 
 comment on column public.channels.auto_accept_requests is
