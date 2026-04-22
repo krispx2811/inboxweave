@@ -47,25 +47,6 @@ const ReplySchema = z.object({
 });
 
 export async function sendManualReply(formData: FormData) {
-  // DEBUG: log EVERY incoming call so we can prove the composer is reaching
-  // the server. Captures raw input BEFORE any validation/auth, so a zod or
-  // auth failure still leaves a trace in audit_logs.
-  try {
-    const adminDebug = createSupabaseAdminClient();
-    const rawOrgId = formData.get("orgId");
-    const rawText = formData.get("text");
-    await adminDebug.from("audit_logs").insert({
-      org_id: typeof rawOrgId === "string" ? rawOrgId : null,
-      action: "composer_debug",
-      payload: {
-        received: true,
-        text_preview: typeof rawText === "string" ? rawText.slice(0, 100) : null,
-        has_conversation_id: Boolean(formData.get("conversationId")),
-        ts: new Date().toISOString(),
-      },
-    });
-  } catch {}
-
   const parsed = ReplySchema.parse({
     orgId: formData.get("orgId"),
     conversationId: formData.get("conversationId"),

@@ -46,3 +46,29 @@ export function setCachedChannel(platform: string, externalId: string, row: Cach
 export function invalidateCachedChannel(platform: string, externalId: string): void {
   store.delete(key(platform, externalId));
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Decrypted access token cache. AES-GCM decryption is not expensive
+// per call, but doing it on every webhook, every typing indicator,
+// and every sendOutbound adds up. Cache by channel.id for 60s.
+// ─────────────────────────────────────────────────────────────────
+
+const tokenStore = new Map<string, { token: string; expires: number }>();
+
+export function getCachedDecryptedToken(channelId: string): string | null {
+  const entry = tokenStore.get(channelId);
+  if (!entry) return null;
+  if (entry.expires < Date.now()) {
+    tokenStore.delete(channelId);
+    return null;
+  }
+  return entry.token;
+}
+
+export function setCachedDecryptedToken(channelId: string, token: string): void {
+  tokenStore.set(channelId, { token, expires: Date.now() + TTL_MS });
+}
+
+export function invalidateCachedDecryptedToken(channelId: string): void {
+  tokenStore.delete(channelId);
+}

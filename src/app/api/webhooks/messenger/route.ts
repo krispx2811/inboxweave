@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { after } from "next/server";
 import { verifyMetaSignatureWithSecret } from "@/lib/channels/signature";
 import { parseMessengerWebhook } from "@/lib/channels/messenger";
 import { handleInbound } from "@/lib/channels/inbound";
@@ -54,24 +55,31 @@ export async function POST(req: NextRequest) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
-  for (const m of messages) {
-    if (m.isEcho) {
-      await handleOwnerEcho({
-        platform: "messenger",
-        channelExternalId: m.pageId,
-        contactExternalId: m.senderPsid,
-        text: m.text,
-        platformMessageId: m.platformMessageId,
-      }).catch((err) => console.error("[messenger webhook] handleOwnerEcho failed", err));
-    } else {
-      await handleInbound({
-        platform: "messenger",
-        channelExternalId: m.pageId,
-        contactExternalId: m.senderPsid,
-        text: m.text,
-        platformMessageId: m.platformMessageId,
-      }).catch((err) => console.error("[messenger webhook] handleInbound failed", err));
+  after(async () => {
+    try {
+      for (const m of messages) {
+        if (m.isEcho) {
+          await handleOwnerEcho({
+            platform: "messenger",
+            channelExternalId: m.pageId,
+            contactExternalId: m.senderPsid,
+            text: m.text,
+            platformMessageId: m.platformMessageId,
+          }).catch((err) => console.error("[messenger webhook] handleOwnerEcho failed", err));
+        } else {
+          await handleInbound({
+            platform: "messenger",
+            channelExternalId: m.pageId,
+            contactExternalId: m.senderPsid,
+            text: m.text,
+            platformMessageId: m.platformMessageId,
+          }).catch((err) => console.error("[messenger webhook] handleInbound failed", err));
+        }
+      }
+    } catch (err) {
+      console.error("[messenger webhook] background processing failed", err);
     }
-  }
+  });
+
   return NextResponse.json({ ok: true });
 }

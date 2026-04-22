@@ -6,6 +6,11 @@ import { sendWhatsAppText } from "./whatsapp";
 import { sendMessengerSenderAction, sendMessengerText } from "./messenger";
 import { sendInstagramSenderAction, sendInstagramText } from "./instagram";
 import { isOutsideWindowError, isTokenError, markChannelHealthy, markChannelUnhealthy } from "./health";
+import {
+  getCachedDecryptedToken,
+  invalidateCachedDecryptedToken,
+  setCachedDecryptedToken,
+} from "./cache";
 
 /**
  * Unified outbound send. Loads the channel + decrypted access token, then
@@ -32,9 +37,14 @@ export async function sendOutbound(params: {
     .single();
   if (chErr || !channel) throw new Error("Channel not found");
 
-  const token = decryptSecret(
-    pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
-  );
+  const channelId = channel.id as string;
+  let token = getCachedDecryptedToken(channelId);
+  if (!token) {
+    token = decryptSecret(
+      pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
+    );
+    setCachedDecryptedToken(channelId, token);
+  }
 
   const dispatch = async (): Promise<{ platformMessageId?: string; platform: ChannelPlatform }> => {
     if (channel.platform === "whatsapp") {
@@ -86,13 +96,16 @@ export async function sendOutbound(params: {
 
   try {
     const result = await dispatch();
-    markChannelHealthy(channel.id as string).catch(() => {});
+    markChannelHealthy(channelId).catch(() => {});
     return result;
   } catch (err) {
     const msg = (err as Error).message ?? String(err);
     if (isTokenError(msg)) {
+      // Drop the decrypted token from cache so the next reconnect
+      // isn't masked by a stale cached value.
+      invalidateCachedDecryptedToken(channelId);
       await markChannelUnhealthy({
-        channelId: channel.id as string,
+        channelId,
         orgId: channel.org_id as string,
         platform: channel.platform as string,
         error: msg,

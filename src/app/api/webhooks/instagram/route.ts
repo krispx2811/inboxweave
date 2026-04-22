@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { after } from "next/server";
 import { verifyMetaSignatureWithSecret } from "@/lib/channels/signature";
 import { parseInstagramWebhook } from "@/lib/channels/instagram";
 import { handleInbound } from "@/lib/channels/inbound";
@@ -105,12 +106,14 @@ export async function POST(req: NextRequest) {
   });
   if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
 
-  // Piggyback: any IG activity on this account is an opportunity to also
-  // scoop up pending message requests. Fire and forget — this runs in
-  // parallel with the inbound processing below and is fully optional.
-  (async () => {
+  // Defer the heavy lifting (AI generate + send + DB writes) until AFTER
+  // the 200 response is out the door. Keeps us well under Meta's ~5s
+  // webhook retry threshold even when OpenAI or Meta's send API is slow.
+  after(async () => {
     try {
       const admin = createSupabaseAdminClient();
+
+      // Piggyback: scan pending message-requests for this account.
       const { data: ch } = await admin
         .from("channels")
         .select("id, auto_accept_requests")
@@ -118,44 +121,44 @@ export async function POST(req: NextRequest) {
         .eq("external_id", firstPageId)
         .maybeSingle();
       if (ch?.auto_accept_requests) {
-        await acceptIgPendingRequests(ch.id as string);
+        acceptIgPendingRequests(ch.id as string).catch(() => {});
       }
-    } catch {}
-  })();
 
-  // Dedupe: Meta retries webhooks when it doesn't get a 200 response fast
-  // enough. If we've already seen this platform_message_id in the messages
-  // table, skip so we don't process the same inbound twice.
-  const ids = messages.map((m) => m.platformMessageId).filter((x): x is string => !!x);
-  let seenIds = new Set<string>();
-  if (ids.length > 0) {
-    const admin = createSupabaseAdminClient();
-    const { data: dupes } = await admin
-      .from("messages")
-      .select("platform_message_id")
-      .in("platform_message_id", ids);
-    seenIds = new Set((dupes ?? []).map((d) => d.platform_message_id as string));
-  }
+      // Dedupe — Meta sometimes redelivers the same event.
+      const ids = messages.map((m) => m.platformMessageId).filter((x): x is string => !!x);
+      let seenIds = new Set<string>();
+      if (ids.length > 0) {
+        const { data: dupes } = await admin
+          .from("messages")
+          .select("platform_message_id")
+          .in("platform_message_id", ids);
+        seenIds = new Set((dupes ?? []).map((d) => d.platform_message_id as string));
+      }
 
-  for (const m of messages) {
-    if (m.platformMessageId && seenIds.has(m.platformMessageId)) continue;
-    if (m.isEcho) {
-      await handleOwnerEcho({
-        platform: "instagram",
-        channelExternalId: m.pageId,
-        contactExternalId: m.senderId,
-        text: m.text,
-        platformMessageId: m.platformMessageId,
-      }).catch((err) => console.error("[instagram webhook] handleOwnerEcho failed", err));
-    } else {
-      await handleInbound({
-        platform: "instagram",
-        channelExternalId: m.pageId,
-        contactExternalId: m.senderId,
-        text: m.text,
-        platformMessageId: m.platformMessageId,
-      }).catch((err) => console.error("[instagram webhook] handleInbound failed", err));
+      for (const m of messages) {
+        if (m.platformMessageId && seenIds.has(m.platformMessageId)) continue;
+        if (m.isEcho) {
+          await handleOwnerEcho({
+            platform: "instagram",
+            channelExternalId: m.pageId,
+            contactExternalId: m.senderId,
+            text: m.text,
+            platformMessageId: m.platformMessageId,
+          }).catch((err) => console.error("[instagram webhook] handleOwnerEcho failed", err));
+        } else {
+          await handleInbound({
+            platform: "instagram",
+            channelExternalId: m.pageId,
+            contactExternalId: m.senderId,
+            text: m.text,
+            platformMessageId: m.platformMessageId,
+          }).catch((err) => console.error("[instagram webhook] handleInbound failed", err));
+        }
+      }
+    } catch (err) {
+      console.error("[instagram webhook] background processing failed", err);
     }
-  }
+  });
+
   return NextResponse.json({ ok: true });
 }

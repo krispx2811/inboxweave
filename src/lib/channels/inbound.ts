@@ -6,6 +6,8 @@ import { retrieveContext } from "@/lib/ai/rag";
 import { analyzeSentiment } from "@/lib/ai/analysis";
 import { classifyConversation } from "@/lib/ai/classify";
 import { getContactMemory } from "@/lib/ai/contact-memory";
+import { describeImage } from "@/lib/ai/vision";
+import { transcribeAudio } from "@/lib/ai/transcribe";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { OutsideWindowError, sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
@@ -130,6 +132,40 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     .select("id, created_at")
     .single();
   if (msgErr || !insertedMsg) throw new Error(msgErr?.message ?? "Failed to insert message");
+
+  // 3a. Turn media into text so the AI can understand it.
+  // - Images → vision description
+  // - Audio/voice → Whisper transcription
+  // Resulting text is merged into msg.text for the rest of the pipeline.
+  if (msg.mediaUrl && (!msg.text || msg.text.trim().length === 0)) {
+    try {
+      if (msg.mediaType === "image") {
+        const desc = await describeImage({
+          orgId,
+          imageUrl: msg.mediaUrl,
+          contextHint: msg.contactName ? `From ${msg.contactName}` : undefined,
+        });
+        if (desc) msg.text = `[Image attachment] ${desc}`;
+      } else if (msg.mediaType === "audio") {
+        const transcript = await transcribeAudio({
+          orgId,
+          audioUrl: msg.mediaUrl,
+          languageHint: (convo.language as string) ?? undefined,
+        });
+        if (transcript) msg.text = `[Voice note] ${transcript}`;
+      }
+      // Backfill the stored message content with the derived text so agents
+      // see it in the inbox instead of "[media]".
+      if (msg.text) {
+        await admin
+          .from("messages")
+          .update({ content: msg.text })
+          .eq("id", insertedMsg.id);
+      }
+    } catch (err) {
+      console.error("[inbound] media processing failed", err);
+    }
+  }
 
   // 4. Fire inbound webhook event (non-blocking).
   dispatchWebhookEvent({
@@ -414,11 +450,45 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         unifiedUserMessage,
         (detectedLang as "ar" | "en") ?? "en",
       );
-      const sent = await sendOutbound({
-        conversationId: convo.id,
-        text: reply + aiFooter(footerLang),
-      });
-      platformMessageId = sent.platformMessageId;
+
+      // Outbox pattern: insert the message row BEFORE sending to Meta.
+      // If the Meta send succeeds but the DB insert afterwards failed
+      // (atomicity bug), we'd lose track of the reply and re-answer the
+      // same customer message next time. Now the row exists first with
+      // platform_message_id=null; we update it after send.
+      const { data: aiRow } = await admin
+        .from("messages")
+        .insert({
+          org_id: orgId,
+          conversation_id: convo.id,
+          direction: "out",
+          sender: "ai",
+          content: reply,
+          platform_message_id: null,
+        })
+        .select("id")
+        .single();
+
+      try {
+        const sent = await sendOutbound({
+          conversationId: convo.id,
+          text: reply + aiFooter(footerLang),
+        });
+        platformMessageId = sent.platformMessageId;
+        if (aiRow?.id && platformMessageId) {
+          await admin
+            .from("messages")
+            .update({ platform_message_id: platformMessageId })
+            .eq("id", aiRow.id);
+        }
+      } catch (sendErr) {
+        // Undo the pre-inserted row so we don't show a phantom reply
+        // in the inbox that never actually went out.
+        if (aiRow?.id) {
+          await admin.from("messages").delete().eq("id", aiRow.id);
+        }
+        throw sendErr;
+      }
     } catch (err) {
       // Meta's 24-hour window rejection is expected (message requests,
       // stale conversations). Log it gently and move on — not a real failure.
@@ -443,17 +513,10 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       return;
     }
 
-    // Persist the bare reply (without the footer) so the next turn's
-    // conversation history stays clean and the model doesn't learn to
-    // repeat the footer.
-    await admin.from("messages").insert({
-      org_id: orgId,
-      conversation_id: convo.id,
-      direction: "out",
-      sender: "ai",
-      content: reply,
-      platform_message_id: platformMessageId ?? null,
-    });
+    // The AI message row was already inserted pre-send (outbox pattern)
+    // and its platform_message_id was back-filled inside the try block.
+    // Just bump the conversation's last_message_at so inbox ordering is
+    // correct.
     await admin
       .from("conversations")
       .update({ last_message_at: new Date().toISOString() })
