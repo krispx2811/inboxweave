@@ -1,5 +1,10 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { updateAiSettings, updateOpenAIKey } from "./actions";
+import {
+  updateAiSettings,
+  updateOpenAIKey,
+  updateOpenAIAdminKey,
+  removeOpenAIAdminKey,
+} from "./actions";
 import Link from "next/link";
 import { IconSparkle, IconShield, IconFacebook, IconGlobe, IconBolt } from "@/components/icons";
 
@@ -20,12 +25,13 @@ export default async function SettingsPage({
       .maybeSingle(),
     admin
       .from("org_secrets")
-      .select("openai_api_key_ciphertext, updated_at")
+      .select("openai_api_key_ciphertext, openai_admin_key_ciphertext, updated_at")
       .eq("org_id", orgId)
       .maybeSingle(),
   ]);
 
   const hasKey = Boolean(secrets?.openai_api_key_ciphertext);
+  const hasAdminKey = Boolean(secrets?.openai_admin_key_ciphertext);
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
@@ -124,6 +130,64 @@ export default async function SettingsPage({
             <p className="mt-1.5 text-[10px] text-slate-400">Encrypted at rest. Never shown again after saving.</p>
           </div>
           <button className="btn" type="submit">Save key</button>
+        </form>
+      </section>
+
+      <section className="card mb-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+            <IconBolt className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="font-semibold">OpenAI Admin Key (optional)</h2>
+            <p className="text-xs text-slate-500">
+              {hasAdminKey
+                ? "Admin key on file — real billing shown on the Usage page."
+                : "Add an Admin key to see authoritative billing from OpenAI on the Usage page."}
+            </p>
+          </div>
+        </div>
+        <form action={updateOpenAIAdminKey} className="space-y-4">
+          <input type="hidden" name="orgId" value={orgId} />
+          <div>
+            <label className="label" htmlFor="adminKey">
+              {hasAdminKey ? "Replace admin key" : "Admin key"}
+            </label>
+            <input
+              id="adminKey"
+              name="adminKey"
+              type="password"
+              className="input"
+              placeholder="sk-admin-..."
+              required
+              autoComplete="off"
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              Different from your API key. Create one at{" "}
+              <a
+                href="https://platform.openai.com/settings/organization/admin-keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-indigo-600"
+              >
+                platform.openai.com/settings/organization/admin-keys
+              </a>
+              . Stored encrypted; used only for read-only billing + usage
+              queries against OpenAI's /v1/organization endpoints.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn" type="submit">Save admin key</button>
+            {hasAdminKey && (
+              <button
+                className="btn-ghost text-red-600 hover:bg-red-50"
+                type="submit"
+                formAction={removeOpenAIAdminKey}
+              >
+                Remove
+              </button>
+            )}
+          </div>
         </form>
       </section>
 

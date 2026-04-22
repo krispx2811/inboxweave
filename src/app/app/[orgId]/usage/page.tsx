@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireOrgMember } from "@/lib/auth/guards";
+import { fetchOpenAICosts, getOpenAIAdminKey } from "@/lib/ai/openai-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,30 @@ export default async function UsagePage({
   const week = bucket(data, 7 * 24 * 60 * 60 * 1000);
   const month = bucket(data, 30 * 24 * 60 * 60 * 1000);
 
+  // Real billing from OpenAI if an admin key is configured.
+  const adminKey = await getOpenAIAdminKey(orgId);
+  let realCostBuckets: Awaited<ReturnType<typeof fetchOpenAICosts>> = null;
+  let realTotal30d = 0;
+  let realTotal7d = 0;
+  let realTotal24h = 0;
+  if (adminKey) {
+    const nowUnix = Math.floor(Date.now() / 1000);
+    realCostBuckets = await fetchOpenAICosts({
+      adminKey,
+      startUnix: nowUnix - 30 * 24 * 60 * 60,
+      endUnix: nowUnix,
+    });
+    if (realCostBuckets) {
+      const cutoff7d = nowUnix - 7 * 24 * 60 * 60;
+      const cutoff24h = nowUnix - 24 * 60 * 60;
+      for (const b of realCostBuckets) {
+        realTotal30d += b.amount.value;
+        if (b.start_time >= cutoff7d) realTotal7d += b.amount.value;
+        if (b.start_time >= cutoff24h) realTotal24h += b.amount.value;
+      }
+    }
+  }
+
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
       <div className="page-header">
@@ -64,22 +89,65 @@ export default async function UsagePage({
         <p>Tokens and cost over time for this organization</p>
       </div>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
-        {[
-          { label: "Last 24h", b: today },
-          { label: "Last 7 days", b: week },
-          { label: "Last 30 days", b: month },
-        ].map((card) => (
-          <div key={card.label} className="card">
-            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              {card.label}
-            </div>
-            <div className="mt-2 text-2xl font-bold">{fmtUsd(card.b.cost)}</div>
-            <div className="mt-1 text-xs text-slate-500">
-              {card.b.tokens.toLocaleString()} tokens · {card.b.calls} calls
+      {adminKey && realCostBuckets ? (
+        <section className="card mb-6 bg-emerald-50 border-emerald-200">
+          <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-3">
+            Authoritative billing from OpenAI
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label: "Last 24h", v: realTotal24h },
+              { label: "Last 7 days", v: realTotal7d },
+              { label: "Last 30 days", v: realTotal30d },
+            ].map((c) => (
+              <div key={c.label}>
+                <div className="text-[11px] text-emerald-600">{c.label}</div>
+                <div className="mt-0.5 text-2xl font-bold text-emerald-900">{fmtUsd(c.v)}</div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-emerald-700">
+            Pulled from <code>GET /v1/organization/costs</code>. Numbers are after OpenAI's free-credit absorption and reflect what will appear on your invoice.
+          </p>
+        </section>
+      ) : (
+        <section className="card mb-6 bg-amber-50 border-amber-200">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
+                Estimates only
+              </div>
+              <p className="mt-1 text-sm text-amber-900">
+                The figures below are our own token-count × price estimates, not actual OpenAI billing. Add an Admin key in{" "}
+                <a href={`/app/${orgId}/settings`} className="underline font-semibold">Settings</a>{" "}
+                to see real invoice figures.
+              </p>
             </div>
           </div>
-        ))}
+        </section>
+      )}
+
+      <section className="mb-6">
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+          Our estimates (from usage_logs)
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[
+            { label: "Last 24h", b: today },
+            { label: "Last 7 days", b: week },
+            { label: "Last 30 days", b: month },
+          ].map((card) => (
+            <div key={card.label} className="card">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                {card.label}
+              </div>
+              <div className="mt-2 text-2xl font-bold">{fmtUsd(card.b.cost)}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {card.b.tokens.toLocaleString()} tokens · {card.b.calls} calls
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="card mb-6">
