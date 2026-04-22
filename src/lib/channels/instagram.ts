@@ -15,6 +15,27 @@ const GRAPH_VERSION = "v21.0";
  * If `useFacebookGraph` is passed (legacy page access token from Facebook
  * Login flow), falls back to graph.facebook.com.
  */
+const IG_MAX_CHARS = 950; // Meta's DM cap is ~1000; stay just below.
+
+/** Split text into chunks at sentence / word boundaries. */
+function splitForIg(text: string, maxLen = IG_MAX_CHARS): string[] {
+  if (text.length <= maxLen) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > maxLen) {
+    // Prefer a sentence boundary, then a space, then a hard cut.
+    const slice = remaining.slice(0, maxLen);
+    let cut = slice.lastIndexOf("\n\n");
+    if (cut < maxLen * 0.5) cut = slice.lastIndexOf(". ");
+    if (cut < maxLen * 0.5) cut = slice.lastIndexOf(" ");
+    if (cut < maxLen * 0.2) cut = maxLen; // fallback: hard cut
+    chunks.push(remaining.slice(0, cut).trim());
+    remaining = remaining.slice(cut).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
 export async function sendInstagramText(params: {
   pageAccessToken: string;
   recipientId: string;
@@ -25,21 +46,28 @@ export async function sendInstagramText(params: {
   const host = params.useFacebookGraph ? "graph.facebook.com" : "graph.instagram.com";
   const url = `https://${host}/${GRAPH_VERSION}/me/messages`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      recipient: { id: params.recipientId },
-      message: { text: params.text },
-      access_token: params.pageAccessToken,
-    }),
-  });
-  const json = (await res.json().catch(() => ({}))) as {
-    message_id?: string;
-    error?: { message: string };
-  };
-  if (!res.ok) throw new Error(`Instagram send failed: ${json.error?.message ?? res.statusText}`);
-  return { messageId: json.message_id };
+  const chunks = splitForIg(params.text);
+  let lastMessageId: string | undefined;
+
+  for (const chunk of chunks) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { id: params.recipientId },
+        message: { text: chunk },
+        access_token: params.pageAccessToken,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      message_id?: string;
+      error?: { message: string };
+    };
+    if (!res.ok) throw new Error(`Instagram send failed: ${json.error?.message ?? res.statusText}`);
+    lastMessageId = json.message_id;
+    if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
+  }
+  return { messageId: lastMessageId };
 }
 
 /**

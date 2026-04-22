@@ -20,13 +20,20 @@ export async function acceptIgPendingRequests(channelId: string): Promise<{
 
   const { data: channel } = await admin
     .from("channels")
-    .select("id, org_id, external_id, access_token_ciphertext, status, platform, auto_accept_requests")
+    .select("id, org_id, external_id, access_token_ciphertext, status, platform, auto_accept_requests, last_request_poll_at")
     .eq("id", channelId)
     .eq("platform", "instagram")
     .maybeSingle();
   if (!channel) return { processed: 0, error: "channel not found" };
   if (!channel.auto_accept_requests) return { processed: 0 };
   if (channel.status !== "active") return { processed: 0 };
+
+  // Skip if we scanned this channel in the last 60s — the Graph API call
+  // isn't free and the webhook piggyback fires constantly on busy accounts.
+  if (channel.last_request_poll_at) {
+    const age = Date.now() - new Date(channel.last_request_poll_at as string).getTime();
+    if (age < 60 * 1000) return { processed: 0 };
+  }
 
   let token: string;
   try {

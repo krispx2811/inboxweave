@@ -6,6 +6,7 @@ import {
   toggleAutoAcceptRequests,
 } from "./actions";
 import { IconWhatsApp, IconFacebook, IconChannels, IconTrash } from "@/components/icons";
+import { ConfirmForm } from "@/components/ConfirmForm";
 
 export const dynamic = "force-dynamic";
 
@@ -254,13 +255,16 @@ export default async function ChannelsPage({
                     <span className={statusBadge(c.status as string)}>{c.status}</span>
                   </div>
                 </div>
-                <form action={disconnectChannel}>
+                <ConfirmForm
+                  action={disconnectChannel}
+                  confirm={`Remove channel "${c.display_name ?? c.external_id}"? Customers won't reach the AI on this channel until reconnected.`}
+                >
                   <input type="hidden" name="orgId" value={orgId} />
                   <input type="hidden" name="channelId" value={c.id} />
                   <button className="btn-ghost btn-sm text-red-600 hover:bg-red-50 hover:border-red-200" type="submit">
                     <IconTrash className="h-4 w-4" /> Remove
                   </button>
-                </form>
+                </ConfirmForm>
               </div>
               {c.platform === "instagram" && (
                 <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-2">

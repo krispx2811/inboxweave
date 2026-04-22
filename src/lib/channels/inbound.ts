@@ -10,6 +10,8 @@ import { describeImage } from "@/lib/ai/vision";
 import { transcribeAudio } from "@/lib/ai/transcribe";
 import { fetchIgContactProfile } from "./ig-profile";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
+import { refreshIgTokenIfStale } from "./ig-token-refresh";
+import { rawChatCompletion } from "@/lib/ai/openai";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { OutsideWindowError, sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
@@ -38,8 +40,17 @@ export interface NormalizedInbound {
 // live in commands.ts and are bilingual (English + Arabic).
 const stripFooter = stripAnyFooter;
 
+// Very cheap probabilistic retention: ~1 in 200 inbounds triggers a cleanup
+// of old webhook_debug rows. Spreads the work across normal traffic without
+// needing an external cron.
+function maybeRunRetention(admin: ReturnType<typeof createSupabaseAdminClient>) {
+  if (Math.random() > 1 / 200) return;
+  admin.rpc("purge_webhook_debug", { keep_days: 7 }).then(() => {}, () => {});
+}
+
 export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   const admin = createSupabaseAdminClient();
+  maybeRunRetention(admin);
 
   // Fast path: if this channel was seen in the last 60s on this function
   // instance, fire the typing bubble NOW — before any DB round-trip.
@@ -61,7 +72,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // 1. Resolve channel → org.
   const { data: channel, error: chErr } = await admin
     .from("channels")
-    .select("id, org_id, platform, status, access_token_ciphertext")
+    .select("id, org_id, platform, status, access_token_ciphertext, token_refreshed_at")
     .eq("platform", msg.platform)
     .eq("external_id", msg.channelExternalId)
     .maybeSingle();
@@ -113,35 +124,59 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       },
       { onConflict: "channel_id,contact_external_id" },
     )
-    .select("id, ai_enabled, language, contact_username")
+    .select("id, ai_enabled, language, contact_username, contact_profile_fetched_at, created_at")
     .single();
   if (convErr || !convo) throw new Error(convErr?.message ?? "Failed to upsert conversation");
 
-  // 2a. Enrich IG contacts with name/username/profile pic on first sight.
-  // Non-blocking, best-effort. Runs only once per conversation (subsequent
-  // messages skip because contact_username is already set).
-  if (msg.platform === "instagram" && !convo.contact_username) {
-    (async () => {
-      try {
-        const token = decryptSecret(
-          pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
-        );
-        const profile = await fetchIgContactProfile({
-          accessToken: token,
-          igUserId: msg.contactExternalId,
-        });
-        if (profile && (profile.name || profile.username || profile.profilePicUrl)) {
-          await admin
-            .from("conversations")
-            .update({
-              contact_name: profile.name ?? null,
-              contact_username: profile.username ?? null,
-              contact_profile_url: profile.profilePicUrl ?? null,
-            })
-            .eq("id", convo.id);
-        }
-      } catch {}
-    })();
+  // 2a. Enrich / refresh IG contact profile. Fetches on first sight AND
+  // also refreshes when the stored profile_pic URL is older than 2h
+  // (Instagram CDN URLs expire). Non-blocking — must not slow the reply.
+  if (msg.platform === "instagram") {
+    const fetchedAt = convo.contact_profile_fetched_at as string | null;
+    const stale = !convo.contact_username ||
+      !fetchedAt ||
+      Date.now() - new Date(fetchedAt).getTime() > 2 * 60 * 60 * 1000;
+    if (stale) {
+      (async () => {
+        try {
+          const token = decryptSecret(
+            pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
+          );
+          const profile = await fetchIgContactProfile({
+            accessToken: token,
+            igUserId: msg.contactExternalId,
+          });
+          if (profile && (profile.name || profile.username || profile.profilePicUrl)) {
+            await admin
+              .from("conversations")
+              .update({
+                contact_name: profile.name ?? null,
+                contact_username: profile.username ?? null,
+                contact_profile_url: profile.profilePicUrl ?? null,
+                contact_profile_fetched_at: new Date().toISOString(),
+              })
+              .eq("id", convo.id);
+          }
+        } catch {}
+      })();
+    }
+  }
+
+  // 2b. Lazy IG token refresh. Runs in the background whenever the current
+  // token is >30 days old, so the 60-day expiry never bites — even for
+  // orgs with no cron. Costs a single HTTP call per channel per month.
+  if (msg.platform === "instagram" && channel.status === "active") {
+    try {
+      const token = decryptSecret(
+        pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
+      );
+      refreshIgTokenIfStale({
+        channelId: channel.id as string,
+        orgId,
+        token,
+        refreshedAt: (channel as { token_refreshed_at?: string | null }).token_refreshed_at ?? null,
+      }).catch(() => {});
+    } catch {}
   }
 
   // 3. Persist inbound message (with optional media).
@@ -226,6 +261,15 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
           event: "conversation.escalated",
           payload: { conversation_id: convo.id, sentiment: result.sentiment, score: result.score },
         }).catch(() => {});
+      } else if (
+        (result.sentiment === "positive" || result.sentiment === "neutral") &&
+        result.score > 0
+      ) {
+        // Auto de-escalate when the customer's tone has recovered. We do NOT
+        // automatically re-enable the AI — that stays the agent's call — but
+        // we do clear the escalated badge so the inbox reflects reality.
+        updates.is_escalated = false;
+        updates.escalated_at = null;
       }
       await admin.from("conversations").update(updates).eq("id", convo.id);
     }).catch(() => {});
@@ -372,21 +416,10 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
-  // Refresh the typing indicator — Meta auto-clears it after ~5-20s and
-  // our debounce + RAG + generation can take 6-10s total, which would make
-  // the bubble disappear before the real reply arrives. Calling typing_on
-  // again here resets the clear timer so it stays visible until the
-  // message itself supersedes it.
-  if (
-    channel.status === "active" &&
-    (channel.platform === "instagram" || channel.platform === "messenger")
-  ) {
-    sendTypingIndicatorFast({
-      platform: channel.platform as string,
-      accessTokenCiphertext: channel.access_token_ciphertext as string,
-      contactExternalId: msg.contactExternalId,
-    }).catch(() => {});
-  }
+  // (Previously we re-fired the typing indicator here to keep the bubble
+  // alive past Meta's auto-clear. Debounce is now 1.5s + total reply
+  // budget stays well under the auto-clear window, so a single early fire
+  // is sufficient.)
 
   // Build the unified user message: all IN messages since the last OUT.
   // This way a burst of ["hi", "for lasik", "how much?"] is answered as
@@ -405,25 +438,60 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   const unifiedUserMessage = burst.length > 1 ? burst.join("\n") : msg.text;
 
   try {
+    // Fetch more than 24 so we can detect long threads and summarize the
+    // older portion into a "prior summary" system note — keeps context
+    // without blowing up token count.
     const { data: history } = await admin
       .from("messages")
       .select("direction, sender, content, created_at")
       .eq("conversation_id", convo.id)
       .order("created_at", { ascending: false })
-      .limit(24);
+      .limit(48);
 
-    const turns = (history ?? [])
+    const allTurns = (history ?? [])
       .reverse()
       .slice(0, -1)
       .map((m) => ({
         role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
-        // Strip any legacy Stop/Start footer from past assistant messages so
-        // the model gets a clean view of the conversation.
         content:
           m.direction === "in"
             ? (m.content as string)
             : stripFooter(m.content as string),
       }));
+
+    // Rolling summary: if the thread is long, keep the last 20 turns
+    // verbatim and condense everything older into a single synthetic
+    // system-role message. Prevents unbounded token growth on 100+
+    // message conversations.
+    const KEEP_RECENT = 20;
+    let priorSummary = "";
+    let turns = allTurns;
+    if (allTurns.length > KEEP_RECENT + 6) {
+      const toSummarize = allTurns.slice(0, allTurns.length - KEEP_RECENT);
+      const transcript = toSummarize
+        .map((t) => `${t.role}: ${t.content}`)
+        .join("\n")
+        .slice(0, 6000);
+      try {
+        priorSummary = await rawChatCompletion({
+          orgId,
+          model: "gpt-4o-mini",
+          temperature: 0,
+          max_tokens: 220,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Summarize this partial customer-support conversation in 3-4 sentences. Focus on what the customer wants, what's already been answered, and any unresolved points. Keep it neutral — no analysis, no headers.",
+            },
+            { role: "user", content: transcript },
+          ],
+        });
+      } catch {
+        priorSummary = "";
+      }
+      turns = allTurns.slice(-KEEP_RECENT);
+    }
 
     // Trim the last N burst messages off the history tail since we're
     // sending them as the current user_message instead.
@@ -457,6 +525,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
           channel.id as string,
           msg.contactExternalId,
           convo.id as string,
+          convo.created_at as string | undefined,
         ).catch(() => [] as string[]),
       ]);
       step = "generateReply";
@@ -467,6 +536,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         history: turnsWithoutBurst,
         retrievedContext: context,
         contactMemory,
+        priorSummary: priorSummary || undefined,
         replyInLanguage: detectedLang ?? undefined,
       });
       if (!reply) return;

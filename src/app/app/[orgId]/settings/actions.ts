@@ -48,6 +48,25 @@ export async function updateOpenAIKey(formData: FormData) {
   const ctx = await requireOrgMember(parsed.orgId);
   if (ctx.role !== "owner") throw new Error("Only owners can update the API key");
 
+  // Validate the key with a tiny live call BEFORE persisting. Avoids the
+  // "pasted a typo, nothing works, confused" scenario.
+  try {
+    const probe = await fetch("https://api.openai.com/v1/models", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${parsed.apiKey}` },
+    });
+    if (!probe.ok) {
+      const text = await probe.text();
+      throw new Error(
+        `OpenAI rejected this key (${probe.status}). Double-check you copied it fully. Details: ${text.slice(0, 160)}`,
+      );
+    }
+  } catch (err) {
+    throw new Error(
+      `OpenAI key validation failed: ${(err as Error).message}`,
+    );
+  }
+
   const ciphertext = encryptSecret(parsed.apiKey);
   const admin = createSupabaseAdminClient();
   const { error } = await admin.from("org_secrets").upsert({

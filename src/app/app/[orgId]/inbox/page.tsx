@@ -13,7 +13,7 @@ import { avatarColor, getInitials } from "@/lib/avatar";
 
 export const dynamic = "force-dynamic";
 
-interface Search { c?: string; q?: string; status?: string; tag?: string; }
+interface Search { c?: string; q?: string; status?: string; tag?: string; all?: string; }
 
 function platformBadge(p: string | undefined) {
   switch (p) { case "whatsapp": return "badge-green"; case "instagram": return "badge-purple"; case "messenger": return "badge-blue"; default: return "badge-gray"; }
@@ -57,8 +57,9 @@ async function renderInbox({
   searchParams: Promise<Search>;
 }) {
   const { orgId } = await params;
-  const { c: selectedId, q, status: filterStatus, tag: filterTag } = await searchParams;
+  const { c: selectedId, q, status: filterStatus, tag: filterTag, all: showAll } = await searchParams;
   const admin = createSupabaseAdminClient();
+  const pageLimit = showAll === "1" ? 1000 : 300;
 
   // Conversations query with filters.
   let convQuery = admin
@@ -66,7 +67,7 @@ async function renderInbox({
     .select("id, contact_name, contact_username, contact_profile_url, contact_external_id, ai_enabled, last_message_at, channel_id, tags, status, assigned_user_id, language, sentiment, sentiment_score, summary, is_pinned, is_escalated, read_at, priority, category, channels(platform, display_name)")
     .eq("org_id", orgId)
     .order("last_message_at", { ascending: false })
-    .limit(100);
+    .limit(pageLimit);
 
   if (q) convQuery = convQuery.or(`contact_name.ilike.%${q}%,contact_username.ilike.%${q}%,contact_external_id.ilike.%${q}%`);
   if (filterStatus) convQuery = convQuery.eq("status", filterStatus);
@@ -238,6 +239,16 @@ async function renderInbox({
               <div className="px-4 py-16 text-center">
                 <IconInbox className="mx-auto h-10 w-10 text-slate-200" />
                 <p className="mt-3 text-sm text-slate-400">{q ? `No results for "${q}"` : "No conversations"}</p>
+              </div>
+            )}
+            {conversations && conversations.length >= pageLimit && showAll !== "1" && (
+              <div className="px-4 py-4 text-center">
+                <Link
+                  href={`/app/${orgId}/inbox?all=1${q ? `&q=${q}` : ""}${filterStatus ? `&status=${filterStatus}` : ""}${filterTag ? `&tag=${filterTag}` : ""}`}
+                  className="text-xs font-semibold text-indigo-600 hover:underline"
+                >
+                  Load all conversations
+                </Link>
               </div>
             )}
           </div>

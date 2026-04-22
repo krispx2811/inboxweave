@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { deleteKnowledgeDoc, uploadKnowledgeDoc } from "./actions";
 import { IconUpload, IconKnowledge, IconTrash } from "@/components/icons";
+import { ConfirmForm } from "@/components/ConfirmForm";
 
 export const dynamic = "force-dynamic";
 
@@ -95,13 +96,16 @@ export default async function KnowledgePage({
               >
                 View / Edit
               </Link>
-              <form action={deleteKnowledgeDoc}>
+              <ConfirmForm
+                action={deleteKnowledgeDoc}
+                confirm={`Delete knowledge document "${d.title}"? This also removes its embeddings — the AI will forget everything in this doc.`}
+              >
                 <input type="hidden" name="orgId" value={orgId} />
                 <input type="hidden" name="documentId" value={d.id} />
                 <button className="btn-ghost btn-sm text-red-600 hover:bg-red-50 hover:border-red-200" type="submit">
                   <IconTrash className="h-4 w-4" />
                 </button>
-              </form>
+              </ConfirmForm>
             </div>
           ))}
           {docs?.length === 0 && (

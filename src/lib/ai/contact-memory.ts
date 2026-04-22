@@ -13,7 +13,15 @@ export async function getContactMemory(
   channelId: string,
   contactExternalId: string,
   excludeConversationId?: string,
+  conversationCreatedAt?: string,
 ): Promise<string[]> {
+  // Short-circuit: if this conversation is the contact's first-ever, there
+  // can't be any older conversations to load. Skip the DB round-trip.
+  if (conversationCreatedAt) {
+    const ageMs = Date.now() - new Date(conversationCreatedAt).getTime();
+    if (ageMs < 5 * 60 * 1000) return [];
+  }
+
   const admin = createSupabaseAdminClient();
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
