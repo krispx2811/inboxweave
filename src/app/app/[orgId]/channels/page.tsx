@@ -1,5 +1,10 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { connectWhatsApp, disconnectChannel, toggleAutoAcceptRequests } from "./actions";
+import {
+  connectWhatsApp,
+  disconnectChannel,
+  scanIgRequestsNow,
+  toggleAutoAcceptRequests,
+} from "./actions";
 import { IconWhatsApp, IconFacebook, IconChannels, IconTrash } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -258,31 +263,41 @@ export default async function ChannelsPage({
                 </form>
               </div>
               {c.platform === "instagram" && (
-                <form
-                  action={toggleAutoAcceptRequests}
-                  className="mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
-                >
-                  <input type="hidden" name="orgId" value={orgId} />
-                  <input type="hidden" name="channelId" value={c.id} />
-                  <input
-                    type="hidden"
-                    name="enabled"
-                    value={c.auto_accept_requests ? "" : "true"}
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-700">Auto-accept message requests</div>
-                    <div className="text-[10px] text-slate-500">
-                      When ON, messages from non-followers (Requests folder) are answered
-                      automatically. Checked on every webhook and every minute.
-                    </div>
-                  </div>
-                  <button
-                    className={`btn-sm ${c.auto_accept_requests ? "btn" : "btn-ghost"}`}
-                    type="submit"
+                <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-2">
+                  <form
+                    action={toggleAutoAcceptRequests}
+                    className="flex items-center justify-between"
                   >
-                    {c.auto_accept_requests ? "ON" : "OFF"}
-                  </button>
-                </form>
+                    <input type="hidden" name="orgId" value={orgId} />
+                    <input type="hidden" name="channelId" value={c.id} />
+                    <input
+                      type="hidden"
+                      name="enabled"
+                      value={c.auto_accept_requests ? "" : "true"}
+                    />
+                    <div>
+                      <div className="font-semibold text-slate-700">Auto-accept message requests</div>
+                      <div className="text-[10px] text-slate-500">
+                        When ON, messages from non-followers (Requests folder) are answered
+                        automatically whenever any IG activity comes in.
+                      </div>
+                    </div>
+                    <button
+                      className={`btn-sm ${c.auto_accept_requests ? "btn" : "btn-ghost"}`}
+                      type="submit"
+                    >
+                      {c.auto_accept_requests ? "ON" : "OFF"}
+                    </button>
+                  </form>
+                  <form action={scanIgRequestsNow} className="flex items-center justify-between border-t border-slate-200 pt-2">
+                    <input type="hidden" name="orgId" value={orgId} />
+                    <input type="hidden" name="channelId" value={c.id} />
+                    <div className="text-[10px] text-slate-500">
+                      Scan the Requests folder right now and process any pending messages.
+                    </div>
+                    <button className="btn-ghost btn-sm" type="submit">Scan requests now</button>
+                  </form>
+                </div>
               )}
             </div>
           ))}

@@ -121,25 +121,3 @@ export async function acceptIgPendingRequests(channelId: string): Promise<{
   return { processed };
 }
 
-/** Process all active IG channels across every org that has auto-accept on. */
-export async function acceptAllIgRequests(): Promise<{
-  channels: number;
-  total_processed: number;
-  errors: number;
-}> {
-  const admin = createSupabaseAdminClient();
-  const { data: channels } = await admin
-    .from("channels")
-    .select("id")
-    .eq("platform", "instagram")
-    .eq("auto_accept_requests", true)
-    .eq("status", "active");
-
-  let total = 0, errors = 0;
-  for (const ch of channels ?? []) {
-    const r = await acceptIgPendingRequests(ch.id as string).catch(() => ({ processed: 0, error: "throw" }));
-    total += r.processed;
-    if (r.error) errors++;
-  }
-  return { channels: (channels ?? []).length, total_processed: total, errors };
-}

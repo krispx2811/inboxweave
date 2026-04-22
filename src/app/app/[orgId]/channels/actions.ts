@@ -75,6 +75,37 @@ export async function disconnectChannel(formData: FormData) {
   revalidatePath(`/app/${parsed.orgId}/channels`);
 }
 
+const ScanRequestsSchema = z.object({
+  orgId: z.string().uuid(),
+  channelId: z.string().uuid(),
+});
+
+/**
+ * Manually trigger a pending-requests scan for a single IG channel.
+ * Processes every pending message in the Requests folder through the
+ * normal AI pipeline immediately.
+ */
+export async function scanIgRequestsNow(formData: FormData) {
+  const parsed = ScanRequestsSchema.parse({
+    orgId: formData.get("orgId"),
+    channelId: formData.get("channelId"),
+  });
+  const ctx = await requireOrgMember(parsed.orgId);
+  if (ctx.role !== "owner") throw new Error("Only owners can scan for requests");
+
+  const { acceptIgPendingRequests } = await import("@/lib/channels/ig-requests");
+  const result = await acceptIgPendingRequests(parsed.channelId);
+
+  const admin = createSupabaseAdminClient();
+  await admin.from("audit_logs").insert({
+    org_id: parsed.orgId,
+    user_id: ctx.userId,
+    action: "ig_requests_scan",
+    payload: { channel_id: parsed.channelId, ...result },
+  });
+  revalidatePath(`/app/${parsed.orgId}/channels`);
+}
+
 const AutoAcceptSchema = z.object({
   orgId: z.string().uuid(),
   channelId: z.string().uuid(),
