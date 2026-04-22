@@ -8,6 +8,8 @@ import { classifyConversation } from "@/lib/ai/classify";
 import { getContactMemory } from "@/lib/ai/contact-memory";
 import { describeImage } from "@/lib/ai/vision";
 import { transcribeAudio } from "@/lib/ai/transcribe";
+import { fetchIgContactProfile } from "./ig-profile";
+import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { OutsideWindowError, sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
@@ -111,9 +113,36 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       },
       { onConflict: "channel_id,contact_external_id" },
     )
-    .select("id, ai_enabled, language")
+    .select("id, ai_enabled, language, contact_username")
     .single();
   if (convErr || !convo) throw new Error(convErr?.message ?? "Failed to upsert conversation");
+
+  // 2a. Enrich IG contacts with name/username/profile pic on first sight.
+  // Non-blocking, best-effort. Runs only once per conversation (subsequent
+  // messages skip because contact_username is already set).
+  if (msg.platform === "instagram" && !convo.contact_username) {
+    (async () => {
+      try {
+        const token = decryptSecret(
+          pgByteaToBuffer(channel.access_token_ciphertext as unknown as string),
+        );
+        const profile = await fetchIgContactProfile({
+          accessToken: token,
+          igUserId: msg.contactExternalId,
+        });
+        if (profile && (profile.name || profile.username || profile.profilePicUrl)) {
+          await admin
+            .from("conversations")
+            .update({
+              contact_name: profile.name ?? null,
+              contact_username: profile.username ?? null,
+              contact_profile_url: profile.profilePicUrl ?? null,
+            })
+            .eq("id", convo.id);
+        }
+      } catch {}
+    })();
+  }
 
   // 3. Persist inbound message (with optional media).
   const { data: insertedMsg, error: msgErr } = await admin

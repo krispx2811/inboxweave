@@ -63,12 +63,12 @@ async function renderInbox({
   // Conversations query with filters.
   let convQuery = admin
     .from("conversations")
-    .select("id, contact_name, contact_external_id, ai_enabled, last_message_at, channel_id, tags, status, assigned_user_id, language, sentiment, sentiment_score, summary, is_pinned, is_escalated, read_at, priority, category, channels(platform, display_name)")
+    .select("id, contact_name, contact_username, contact_profile_url, contact_external_id, ai_enabled, last_message_at, channel_id, tags, status, assigned_user_id, language, sentiment, sentiment_score, summary, is_pinned, is_escalated, read_at, priority, category, channels(platform, display_name)")
     .eq("org_id", orgId)
     .order("last_message_at", { ascending: false })
     .limit(100);
 
-  if (q) convQuery = convQuery.or(`contact_name.ilike.%${q}%,contact_external_id.ilike.%${q}%`);
+  if (q) convQuery = convQuery.or(`contact_name.ilike.%${q}%,contact_username.ilike.%${q}%,contact_external_id.ilike.%${q}%`);
   if (filterStatus) convQuery = convQuery.eq("status", filterStatus);
   if (filterTag) convQuery = convQuery.contains("tags", [filterTag]);
 
@@ -187,10 +187,13 @@ async function renderInbox({
             {(conversations ?? []).map((c) => {
               const ch = (c as unknown as { channels?: { platform: string } }).channels;
               const active = selected?.id === c.id;
-              const initials = getInitials(c.contact_name as string | null, c.contact_external_id as string);
+              const username = c.contact_username as string | null;
+              const realName = c.contact_name as string | null;
+              const displayName = realName ?? (username ? `@${username}` : (c.contact_external_id as string));
+              const profilePic = c.contact_profile_url as string | null;
+              const initials = getInitials(realName, c.contact_external_id as string);
               const tags = (c.tags as string[]) ?? [];
-              const nameKey = (c.contact_name as string) ?? (c.contact_external_id as string);
-              const colors = avatarColor(nameKey);
+              const colors = avatarColor(displayName);
               const isUnread = c.read_at == null || new Date(c.last_message_at as string) > new Date(c.read_at as string);
               return (
                 <Link
@@ -199,12 +202,22 @@ async function renderInbox({
                   className={`flex items-center gap-3 px-4 py-3 transition-colors border-b border-slate-50 dark:border-slate-800 ${active ? "bg-indigo-50 border-l-2 border-l-indigo-600 dark:bg-indigo-950" : "hover:bg-slate-50 dark:hover:bg-slate-900"}`}
                 >
                   <div className="relative">
-                    <div className={`avatar-sm ${colors.bg} ${colors.text}`}>{initials}</div>
+                    {profilePic ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={profilePic}
+                        alt=""
+                        className="avatar-sm object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className={`avatar-sm ${colors.bg} ${colors.text}`}>{initials}</div>
+                    )}
                     {isUnread && <span className="absolute -top-0.5 -right-0.5 unread-dot" />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
-                      <span className="truncate text-sm font-semibold">{(c.contact_name as string) ?? (c.contact_external_id as string)}</span>
+                      <span className="truncate text-sm font-semibold">{displayName}</span>
                       <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">{timeAgo(c.last_message_at as string)}</span>
                     </div>
                     <div className="mt-0.5 flex items-center gap-1 flex-wrap">
@@ -253,10 +266,23 @@ async function renderInbox({
               {/* Header */}
               <header className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`avatar-md ${avatarColor((selected.contact_name as string) ?? (selected.contact_external_id as string)).bg} ${avatarColor((selected.contact_name as string) ?? (selected.contact_external_id as string)).text}`}>{getInitials(selected.contact_name as string | null, selected.contact_external_id as string)}</div>
+                  {selected.contact_profile_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={selected.contact_profile_url as string}
+                      alt=""
+                      className="avatar-md object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className={`avatar-md ${avatarColor((selected.contact_name as string) ?? (selected.contact_external_id as string)).bg} ${avatarColor((selected.contact_name as string) ?? (selected.contact_external_id as string)).text}`}>{getInitials(selected.contact_name as string | null, selected.contact_external_id as string)}</div>
+                  )}
                   <div className="min-w-0">
-                    <div className="font-semibold truncate">{(selected.contact_name as string) ?? (selected.contact_external_id as string)}</div>
+                    <div className="font-semibold truncate">{(selected.contact_name as string) ?? (selected.contact_username ? `@${selected.contact_username as string}` : (selected.contact_external_id as string))}</div>
                     <div className="flex items-center gap-2 text-xs text-slate-500">
+                      {selected.contact_name && selected.contact_username && (
+                        <span className="text-slate-500">@{selected.contact_username as string}</span>
+                      )}
                       <span className={platformBadge(selectedCh?.platform)}>{selectedCh?.platform}</span>
                       {selected.language && <span className="badge-gray">{selected.language}</span>}
                       {selected.ai_enabled && <span className="flex items-center gap-1 text-indigo-600"><IconSparkle className="h-3 w-3" /> AI</span>}
