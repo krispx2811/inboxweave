@@ -3,6 +3,8 @@ import { verifyMetaSignatureWithSecret } from "@/lib/channels/signature";
 import { parseInstagramWebhook } from "@/lib/channels/instagram";
 import { handleInbound } from "@/lib/channels/inbound";
 import { handleOwnerEcho } from "@/lib/channels/echo";
+import { acceptIgPendingRequests } from "@/lib/channels/ig-requests";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   findOrgByChannelExternalId,
   findOrgByVerifyToken,
@@ -102,6 +104,24 @@ export async function POST(req: NextRequest) {
     error: sigOk ? undefined : `signature mismatch`,
   });
   if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
+
+  // Piggyback: any IG activity on this account is an opportunity to also
+  // scoop up pending message requests. Fire and forget — this runs in
+  // parallel with the inbound processing below and is fully optional.
+  (async () => {
+    try {
+      const admin = createSupabaseAdminClient();
+      const { data: ch } = await admin
+        .from("channels")
+        .select("id, auto_accept_requests")
+        .eq("platform", "instagram")
+        .eq("external_id", firstPageId)
+        .maybeSingle();
+      if (ch?.auto_accept_requests) {
+        await acceptIgPendingRequests(ch.id as string);
+      }
+    } catch {}
+  })();
 
   for (const m of messages) {
     if (m.isEcho) {

@@ -74,3 +74,46 @@ export async function disconnectChannel(formData: FormData) {
   });
   revalidatePath(`/app/${parsed.orgId}/channels`);
 }
+
+const AutoAcceptSchema = z.object({
+  orgId: z.string().uuid(),
+  channelId: z.string().uuid(),
+  enabled: z.coerce.boolean(),
+});
+
+/**
+ * Toggle auto-accept of IG message requests. When enabled, requests are
+ * picked up on every webhook arrival and by the 1-minute cron, so new
+ * message-requests get answered near-instantly without manual approval.
+ */
+export async function toggleAutoAcceptRequests(formData: FormData) {
+  const parsed = AutoAcceptSchema.parse({
+    orgId: formData.get("orgId"),
+    channelId: formData.get("channelId"),
+    enabled: formData.get("enabled"),
+  });
+  const ctx = await requireOrgMember(parsed.orgId);
+  if (ctx.role !== "owner") throw new Error("Only owners can change channel settings");
+
+  const admin = createSupabaseAdminClient();
+  await admin
+    .from("channels")
+    .update({ auto_accept_requests: parsed.enabled })
+    .eq("id", parsed.channelId)
+    .eq("org_id", parsed.orgId);
+
+  // Immediate scan when just enabled so the effect is visible right away.
+  if (parsed.enabled) {
+    import("@/lib/channels/ig-requests")
+      .then(({ acceptIgPendingRequests }) => acceptIgPendingRequests(parsed.channelId))
+      .catch(() => {});
+  }
+
+  await admin.from("audit_logs").insert({
+    org_id: parsed.orgId,
+    user_id: ctx.userId,
+    action: parsed.enabled ? "ig_auto_accept_enabled" : "ig_auto_accept_disabled",
+    payload: { channel_id: parsed.channelId },
+  });
+  revalidatePath(`/app/${parsed.orgId}/channels`);
+}

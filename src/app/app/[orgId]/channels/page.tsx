@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { connectWhatsApp, disconnectChannel } from "./actions";
+import { connectWhatsApp, disconnectChannel, toggleAutoAcceptRequests } from "./actions";
 import { IconWhatsApp, IconFacebook, IconChannels, IconTrash } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export default async function ChannelsPage({
   const admin = createSupabaseAdminClient();
   const { data: channels } = await admin
     .from("channels")
-    .select("id, platform, external_id, display_name, status, last_error, last_error_at, created_at")
+    .select("id, platform, external_id, display_name, status, last_error, last_error_at, auto_accept_requests, created_at")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
@@ -237,24 +237,53 @@ export default async function ChannelsPage({
         </h2>
         <div className="space-y-2">
           {(channels ?? []).map((c) => (
-            <div key={c.id} className="card flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-50">
-                {platformIcon(c.platform as string)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold truncate">{c.display_name ?? c.external_id}</div>
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span>{c.external_id}</span>
-                  <span className={statusBadge(c.status as string)}>{c.status}</span>
+            <div key={c.id} className="card">
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-50">
+                  {platformIcon(c.platform as string)}
                 </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate">{c.display_name ?? c.external_id}</div>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span>{c.external_id}</span>
+                    <span className={statusBadge(c.status as string)}>{c.status}</span>
+                  </div>
+                </div>
+                <form action={disconnectChannel}>
+                  <input type="hidden" name="orgId" value={orgId} />
+                  <input type="hidden" name="channelId" value={c.id} />
+                  <button className="btn-ghost btn-sm text-red-600 hover:bg-red-50 hover:border-red-200" type="submit">
+                    <IconTrash className="h-4 w-4" /> Remove
+                  </button>
+                </form>
               </div>
-              <form action={disconnectChannel}>
-                <input type="hidden" name="orgId" value={orgId} />
-                <input type="hidden" name="channelId" value={c.id} />
-                <button className="btn-ghost btn-sm text-red-600 hover:bg-red-50 hover:border-red-200" type="submit">
-                  <IconTrash className="h-4 w-4" /> Remove
-                </button>
-              </form>
+              {c.platform === "instagram" && (
+                <form
+                  action={toggleAutoAcceptRequests}
+                  className="mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                >
+                  <input type="hidden" name="orgId" value={orgId} />
+                  <input type="hidden" name="channelId" value={c.id} />
+                  <input
+                    type="hidden"
+                    name="enabled"
+                    value={c.auto_accept_requests ? "" : "true"}
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-700">Auto-accept message requests</div>
+                    <div className="text-[10px] text-slate-500">
+                      When ON, messages from non-followers (Requests folder) are answered
+                      automatically. Checked on every webhook and every minute.
+                    </div>
+                  </div>
+                  <button
+                    className={`btn-sm ${c.auto_accept_requests ? "btn" : "btn-ghost"}`}
+                    type="submit"
+                  >
+                    {c.auto_accept_requests ? "ON" : "OFF"}
+                  </button>
+                </form>
+              )}
             </div>
           ))}
           {channels?.length === 0 && (
