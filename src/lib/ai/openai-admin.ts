@@ -31,6 +31,20 @@ export interface OpenAICostBucket {
   project_id: string | null;
 }
 
+/**
+ * OpenAI's API returns monetary amounts as STRINGS (often in scientific
+ * notation like "0E-6176" which means zero). We need to coerce to Number
+ * or math gets NaN. Negative/missing values → 0.
+ */
+function coerceAmount(raw: unknown): number {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
 export interface OpenAICostResponse {
   object: "page";
   data: Array<{
@@ -39,7 +53,7 @@ export interface OpenAICostResponse {
     end_time: number;
     results: Array<{
       object: "organization.costs.result";
-      amount: { value: number; currency: string };
+      amount: { value: number | string; currency: string };
       line_item: string | null;
       project_id: string | null;
     }>;
@@ -84,7 +98,10 @@ export async function fetchOpenAICosts(params: {
         out.push({
           start_time: bucket.start_time,
           end_time: bucket.end_time,
-          amount: result.amount,
+          amount: {
+            value: coerceAmount(result.amount?.value),
+            currency: result.amount?.currency ?? "usd",
+          },
           line_item: result.line_item,
           project_id: result.project_id,
         });

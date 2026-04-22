@@ -106,9 +106,21 @@ export default async function UsagePage({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-[11px] text-emerald-700">
-            Pulled from <code>GET /v1/organization/costs</code>. Numbers are after OpenAI's free-credit absorption and reflect what will appear on your invoice.
-          </p>
+          {realTotal30d === 0 && month.cost > 0 ? (
+            <p className="mt-3 text-[11px] text-emerald-800 leading-relaxed">
+              <strong>$0 billed</strong> by OpenAI despite{" "}
+              <strong>{fmtUsd(month.cost)}</strong> of API usage this month. You're
+              likely inside a free-credit grant, a monthly minimum threshold,
+              or OpenAI hasn't settled the latest usage to the invoice yet
+              (typically up to 24h lag). The estimates below are what you'd
+              pay after credits run out.
+            </p>
+          ) : (
+            <p className="mt-3 text-[11px] text-emerald-700">
+              Pulled from <code>GET /v1/organization/costs</code>. Numbers reflect
+              what will appear on your invoice.
+            </p>
+          )}
         </section>
       ) : (
         <section className="card mb-6 bg-amber-50 border-amber-200">
