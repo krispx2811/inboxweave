@@ -61,7 +61,9 @@ export async function getAiSettings(orgId: string): Promise<AiSettings> {
       system_prompt:
         "You are a helpful customer support assistant. Be concise, friendly, and accurate.",
       model: "gpt-4o-mini",
-      temperature: 0.3,
+      // Default to 0 to prevent hallucinating numbers/contact info. Orgs can
+      // raise this per-org if they want more creative replies.
+      temperature: 0,
     }
   );
 }
@@ -166,13 +168,24 @@ export async function generateReply(params: {
     "said earlier to resolve what they're asking about now. If context is genuinely " +
     "ambiguous, ask one clarifying question instead of guessing.";
 
+  // Applied to EVERY org regardless of per-org prompt. Stops the model from
+  // inventing phone numbers, prices, service codes, or any other digits it
+  // doesn't have in context.
+  const antiHallucination =
+    "\n\nCRITICAL — DO NOT FABRICATE DATA:\n" +
+    "- Phone numbers, WhatsApp numbers, email addresses, service codes, prices, dates, and any numeric identifiers MUST be quoted VERBATIM from the knowledge base or this system prompt.\n" +
+    "- NEVER invent, pad, round, or fill digits with placeholders like 9999, 0000, XXXX, or '-'.\n" +
+    "- If a requested number or detail is not in your context, say 'Let me get the exact details from our team' (or the Arabic equivalent 'دعني أتواصل مع الفريق') instead of guessing.\n" +
+    "- Copy each digit exactly, including leading zeros and all 8+ digits of local numbers. Do not abbreviate.\n" +
+    "- If you find yourself unsure whether a number is complete, choose to NOT provide it rather than provide a wrong one.";
+
   const model = settings.model || "gpt-4o-mini";
   const result = await chatCompletion({
     apiKey,
     model,
     temperature: settings.temperature,
     messages: [
-      { role: "system", content: settings.system_prompt + memoryBlock + contextBlock + languageInstruction + contextInstruction },
+      { role: "system", content: settings.system_prompt + memoryBlock + contextBlock + languageInstruction + contextInstruction + antiHallucination },
       ...params.history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: params.userMessage },
     ],
