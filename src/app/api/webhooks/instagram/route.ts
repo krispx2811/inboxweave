@@ -123,10 +123,23 @@ export async function POST(req: NextRequest) {
     } catch {}
   })();
 
+  // Dedupe: Meta retries webhooks when it doesn't get a 200 response fast
+  // enough. If we've already seen this platform_message_id in the messages
+  // table, skip so we don't process the same inbound twice.
+  const ids = messages.map((m) => m.platformMessageId).filter((x): x is string => !!x);
+  let seenIds = new Set<string>();
+  if (ids.length > 0) {
+    const admin = createSupabaseAdminClient();
+    const { data: dupes } = await admin
+      .from("messages")
+      .select("platform_message_id")
+      .in("platform_message_id", ids);
+    seenIds = new Set((dupes ?? []).map((d) => d.platform_message_id as string));
+  }
+
   for (const m of messages) {
+    if (m.platformMessageId && seenIds.has(m.platformMessageId)) continue;
     if (m.isEcho) {
-      // Owner replied from the IG app directly. Record it in the inbox
-      // and act on stop/start commands (pause/resume AI).
       await handleOwnerEcho({
         platform: "instagram",
         channelExternalId: m.pageId,

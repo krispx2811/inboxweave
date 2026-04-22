@@ -7,7 +7,7 @@ import { analyzeSentiment } from "@/lib/ai/analysis";
 import { classifyConversation } from "@/lib/ai/classify";
 import { getContactMemory } from "@/lib/ai/contact-memory";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
-import { sendOutbound, sendTypingIndicatorFast } from "./router";
+import { OutsideWindowError, sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
 import {
   aiFooter,
@@ -266,11 +266,12 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   }
 
   // Debounce: customers often send multiple quick messages in a burst
-  // ("hi", "im interested in lasik", "how much?"). Wait 3s, then check if
+  // ("hi", "im interested in lasik", "how much?"). Wait 1.5s, then check if
   // another inbound arrived. If it did, that handler will take over — we
   // bail out. Only the handler for the LAST message in a burst generates
-  // a unified reply across the whole burst.
-  await new Promise((r) => setTimeout(r, 3000));
+  // a unified reply. 1.5s is tuned to stay well under Meta's 5s webhook
+  // retry timeout while still catching most bursts.
+  await new Promise((r) => setTimeout(r, 1500));
 
   const { data: newestIn } = await admin
     .from("messages")
@@ -419,6 +420,19 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       });
       platformMessageId = sent.platformMessageId;
     } catch (err) {
+      // Meta's 24-hour window rejection is expected (message requests,
+      // stale conversations). Log it gently and move on — not a real failure.
+      if (err instanceof OutsideWindowError) {
+        await admin.from("audit_logs").insert({
+          org_id: orgId,
+          action: "ai_reply_skipped",
+          payload: {
+            conversation_id: convo.id,
+            reason: "outside_messaging_window",
+          },
+        });
+        return;
+      }
       const detail = `[step=${step}] ${(err as Error).message}`;
       console.error("[inbound] AI reply failed", detail);
       await admin.from("audit_logs").insert({

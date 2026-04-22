@@ -23,6 +23,22 @@ export function isTokenError(message: string): boolean {
 }
 
 /**
+ * Detect Meta's "24-hour messaging window" error. Happens when we try to
+ * reply to a customer whose conversation is in the Requests folder (not
+ * yet accepted) or whose last inbound was >24h ago. Not a token failure —
+ * needs different handling than the channel going "unhealthy".
+ */
+export function isOutsideWindowError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("outside of allowed window") ||
+    m.includes("outside the 24") ||
+    m.includes("messaging window") ||
+    m.includes("policy violation") && m.includes("messaging")
+  );
+}
+
+/**
  * Mark a channel as needing reconnection, persist the error, and notify the
  * org's owners by email (if RESEND_API_KEY is configured). Idempotent: won't
  * re-email if the same error was already recorded within the last hour.

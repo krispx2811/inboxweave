@@ -5,7 +5,7 @@ import type { ChannelPlatform } from "@/lib/supabase/types";
 import { sendWhatsAppText } from "./whatsapp";
 import { sendMessengerSenderAction, sendMessengerText } from "./messenger";
 import { sendInstagramSenderAction, sendInstagramText } from "./instagram";
-import { isTokenError, markChannelHealthy, markChannelUnhealthy } from "./health";
+import { isOutsideWindowError, isTokenError, markChannelHealthy, markChannelUnhealthy } from "./health";
 
 /**
  * Unified outbound send. Loads the channel + decrypted access token, then
@@ -97,8 +97,24 @@ export async function sendOutbound(params: {
         platform: channel.platform as string,
         error: msg,
       }).catch(() => {});
+    } else if (isOutsideWindowError(msg)) {
+      // Expected state for message-request conversations or stale threads.
+      // Don't mark the channel unhealthy; don't flood audit_logs. Just
+      // re-throw with a tagged error the caller can recognise.
+      throw new OutsideWindowError(msg);
     }
     throw err;
+  }
+}
+
+/**
+ * Thrown when Meta rejects a send with "outside of allowed window". The
+ * caller can swallow this silently rather than treating it as a real failure.
+ */
+export class OutsideWindowError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OutsideWindowError";
   }
 }
 

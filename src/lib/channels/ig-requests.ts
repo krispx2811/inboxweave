@@ -58,7 +58,11 @@ export async function acceptIgPendingRequests(channelId: string): Promise<{
     return { processed: 0, error: `list ${listRes.status}: ${listBody.slice(0, 200)}` };
   }
 
-  let conversations: Array<{ id: string; participants?: { data: Array<{ id: string; username?: string }> } }> = [];
+  let conversations: Array<{
+    id: string;
+    updated_time?: string;
+    participants?: { data: Array<{ id: string; username?: string }> };
+  }> = [];
   try {
     conversations = (JSON.parse(listBody) as { data?: typeof conversations }).data ?? [];
   } catch {
@@ -68,7 +72,16 @@ export async function acceptIgPendingRequests(channelId: string): Promise<{
   const businessId = channel.external_id as string;
   let processed = 0;
 
+  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+
   for (const convo of conversations) {
+    // Skip conversations whose last activity is > 24h ago — Instagram
+    // rejects replies on these with "outside of allowed window" anyway.
+    if (convo.updated_time) {
+      const updated = new Date(convo.updated_time).getTime();
+      if (updated < twentyFourHoursAgo) continue;
+    }
+
     // Find the other participant (the customer).
     const contact = convo.participants?.data.find((p) => p.id !== businessId);
     if (!contact) continue;
