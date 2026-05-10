@@ -253,9 +253,13 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         sentiment_score: result.score,
       };
       if (result.shouldEscalate) {
+        // Surface the badge in the inbox so the agent can see the customer
+        // sounded angry, but do NOT auto-pause the AI — sentiment detection
+        // had too many false positives (customer hits a single sharp word
+        // and the AI goes silent). Only the explicit "stop" command from
+        // the customer or owner pauses replies now.
         updates.is_escalated = true;
         updates.escalated_at = new Date().toISOString();
-        updates.ai_enabled = false; // Auto-pause AI on escalation.
         dispatchWebhookEvent({
           orgId,
           event: "conversation.escalated",
