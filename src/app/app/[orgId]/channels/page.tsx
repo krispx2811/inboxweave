@@ -7,6 +7,7 @@ import {
 } from "./actions";
 import { IconWhatsApp, IconFacebook, IconChannels, IconTrash } from "@/components/icons";
 import { ConfirmForm } from "@/components/ConfirmForm";
+import { WhatsAppEmbeddedSignup } from "@/components/channels/WhatsAppEmbeddedSignup";
 
 export const dynamic = "force-dynamic";
 
@@ -148,7 +149,7 @@ export default async function ChannelsPage({
         </div>
       )}
 
-      {/* ── WhatsApp ────────────────────────────────────────── */}
+      {/* ── WhatsApp — three connection paths ───────────────── */}
       <section className="card mb-4">
         <div className="flex items-center gap-3 mb-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
@@ -156,34 +157,114 @@ export default async function ChannelsPage({
           </div>
           <div>
             <h2 className="font-semibold">WhatsApp Cloud API</h2>
-            <p className="text-xs text-slate-500">Connect your business phone number</p>
+            <p className="text-xs text-slate-500">Three ways to connect — easiest first</p>
           </div>
         </div>
-        <form action={connectWhatsApp} className="space-y-4">
-          <input type="hidden" name="orgId" value={orgId} />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label" htmlFor="displayName">Display name</label>
-              <input className="input" id="displayName" name="displayName" placeholder="e.g. Support Line" required />
+
+        {/* Option A — Embedded Signup (one-click) */}
+        <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">EASIEST</span>
+            <span className="text-sm font-semibold">Option 1 · Embedded Signup</span>
+          </div>
+          <p className="text-xs text-slate-600 mb-3">
+            Click once. Meta walks you through linking your WhatsApp Business
+            account in a popup. We get the phone number ID and a permanent token
+            automatically. Requires Embedded Signup enabled in your Meta App.
+          </p>
+          {fbAppId && process.env.NEXT_PUBLIC_META_WA_CONFIG_ID ? (
+            <WhatsAppEmbeddedSignup
+              orgId={orgId}
+              fbAppId={fbAppId}
+              configId={process.env.NEXT_PUBLIC_META_WA_CONFIG_ID}
+            />
+          ) : (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              Embedded Signup not configured. Set <code>NEXT_PUBLIC_META_WA_CONFIG_ID</code> in
+              Netlify env to your Meta Embedded Signup config id, and ensure your
+              Meta App has the WhatsApp Embedded Signup product enabled.
+              {" "}
+              <a href="https://developers.facebook.com/docs/whatsapp/embedded-signup" target="_blank" rel="noopener noreferrer" className="underline">Setup guide</a>.
             </div>
-            <div>
-              <label className="label" htmlFor="phoneNumberId">Phone Number ID</label>
-              <input className="input" id="phoneNumberId" name="phoneNumberId" placeholder="From Meta Business" required />
+          )}
+        </div>
+
+        {/* Option B — Facebook Login OAuth */}
+        <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white">RECOMMENDED</span>
+            <span className="text-sm font-semibold">Option 2 · Connect with Facebook</span>
+          </div>
+          <p className="text-xs text-slate-600 mb-3">
+            Standard OAuth flow. Sign in with Facebook, we list your WhatsApp
+            Business accounts, you pick which phone number to connect. Works
+            without Embedded Signup approval.
+          </p>
+          {fbAppId ? (
+            <a
+              className="btn !bg-blue-600 hover:!bg-blue-700 !text-white"
+              href={`https://www.facebook.com/v21.0/dialog/oauth?${new URLSearchParams({
+                client_id: fbAppId,
+                redirect_uri: `${appUrl}/api/meta/oauth/callback`,
+                state: Buffer.from(JSON.stringify({ orgId, flow: "wa" })).toString("base64url"),
+                scope: "whatsapp_business_management,whatsapp_business_messaging,business_management",
+              }).toString()}`}
+            >
+              <IconFacebook className="h-4 w-4" /> Connect WhatsApp via Facebook
+            </a>
+          ) : (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              Meta App ID not configured. <a href={`/app/${orgId}/settings/meta`} className="underline font-semibold">Add credentials first</a>.
             </div>
+          )}
+        </div>
+
+        {/* Option C — Manual paste with guide + live validation */}
+        <details className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+          <summary className="cursor-pointer text-sm font-semibold flex items-center gap-2">
+            <span className="rounded-full bg-slate-600 px-2 py-0.5 text-[10px] font-bold text-white">MANUAL</span>
+            <span>Option 3 · Paste credentials yourself</span>
+          </summary>
+          <div className="mt-4 space-y-4">
+            <div className="rounded-lg bg-white border border-slate-200 p-3 text-xs text-slate-600 space-y-2">
+              <p className="font-semibold text-slate-700">Where to find each value:</p>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li>Open <a href="https://business.facebook.com/wa/manage" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Meta Business Manager → WhatsApp Manager</a></li>
+                <li><strong>Phone Number ID</strong>: API Setup → look under your business phone number, copy the long numeric ID.</li>
+                <li><strong>Permanent access token</strong>: Business Settings → Users → System Users → Add → generate token with <code>whatsapp_business_messaging</code> + <code>whatsapp_business_management</code> permissions. Pick "Never expires".</li>
+                <li>Add the webhook URL below to your Meta App's Webhooks → WhatsApp Business Account configuration with verify token from your Meta settings.</li>
+              </ol>
+              <p className="text-[10px] text-slate-500 pt-1">
+                Token is stored encrypted at rest. We validate it against Meta as soon as you click Connect — bad credentials fail with a clear error.
+              </p>
+            </div>
+            <form action={connectWhatsApp} className="space-y-3">
+              <input type="hidden" name="orgId" value={orgId} />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="displayName">Display name (optional)</label>
+                  <input className="input" id="displayName" name="displayName" placeholder="e.g. Support Line" required />
+                </div>
+                <div>
+                  <label className="label" htmlFor="phoneNumberId">Phone Number ID</label>
+                  <input className="input font-mono" id="phoneNumberId" name="phoneNumberId" placeholder="123456789012345" required />
+                </div>
+              </div>
+              <div>
+                <label className="label" htmlFor="accessToken">Permanent access token</label>
+                <input className="input font-mono" id="accessToken" name="accessToken" type="password" placeholder="EAA…" required autoComplete="off" />
+              </div>
+              <div className="flex items-center justify-between">
+                <button className="btn">
+                  <IconWhatsApp className="h-4 w-4" /> Connect WhatsApp
+                </button>
+                <p className="text-[10px] text-slate-400">
+                  Webhook URL: <code className="text-[10px]">{appUrl}/api/webhooks/whatsapp</code>
+                </p>
+              </div>
+            </form>
           </div>
-          <div>
-            <label className="label" htmlFor="accessToken">Permanent access token</label>
-            <input className="input" id="accessToken" name="accessToken" type="password" placeholder="System user token from Meta Business Manager" required autoComplete="off" />
-          </div>
-          <div className="flex items-center justify-between">
-            <button className="btn">
-              <IconWhatsApp className="h-4 w-4" /> Connect WhatsApp
-            </button>
-            <p className="text-[10px] text-slate-400">
-              Webhook URL: <code className="text-[10px]">{appUrl}/api/webhooks/whatsapp</code>
-            </p>
-          </div>
-        </form>
+        </details>
       </section>
 
       {/* ── Instagram Business Login (new API) ──────────────── */}

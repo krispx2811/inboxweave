@@ -23,13 +23,37 @@ export async function connectWhatsApp(formData: FormData) {
   const ctx = await requireOrgMember(parsed.orgId);
   if (ctx.role !== "owner") throw new Error("Only owners can connect channels");
 
+  // Live validation: hit Meta's Cloud API with the supplied phone number
+  // ID + token. If either is wrong / expired / from a different account,
+  // we error immediately with a useful message instead of silently
+  // saving credentials that won't work.
+  const verifyUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(
+    parsed.phoneNumberId,
+  )}?fields=display_phone_number,verified_name,quality_rating`;
+  const verify = await fetch(verifyUrl, {
+    headers: { Authorization: `Bearer ${parsed.accessToken}` },
+  });
+  if (!verify.ok) {
+    const body = await verify.text();
+    throw new Error(
+      `Meta rejected these credentials (${verify.status}). Common causes: wrong Phone Number ID, expired or revoked token, token doesn't have whatsapp_business_messaging scope. Details: ${body.slice(0, 220)}`,
+    );
+  }
+  const info = (await verify.json()) as {
+    display_phone_number?: string;
+    verified_name?: string;
+  };
+
   const admin = createSupabaseAdminClient();
   const { error } = await admin.from("channels").upsert(
     {
       org_id: parsed.orgId,
       platform: "whatsapp",
       external_id: parsed.phoneNumberId,
-      display_name: parsed.displayName,
+      // Prefer the human-friendly display name from Meta if the user
+      // didn't pick a great one — falls back to whatever they typed.
+      display_name:
+        info.verified_name ?? info.display_phone_number ?? parsed.displayName,
       access_token_ciphertext: bufferToPgBytea(encryptSecret(parsed.accessToken)),
       status: "active",
     },

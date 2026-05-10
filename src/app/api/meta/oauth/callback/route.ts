@@ -32,14 +32,15 @@ export async function GET(req: NextRequest) {
   if (!code || !state) return NextResponse.redirect(new URL("/", req.url));
 
   let orgId: string;
-  let flow: "ig" | "fb" = "fb";
+  let flow: "ig" | "fb" | "wa" = "fb";
   try {
     const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
       orgId: string;
-      flow?: "ig" | "fb";
+      flow?: "ig" | "fb" | "wa";
     };
     orgId = decoded.orgId;
     if (decoded.flow === "ig") flow = "ig";
+    else if (decoded.flow === "wa") flow = "wa";
   } catch {
     return new NextResponse("bad state", { status: 400 });
   }
@@ -55,6 +56,12 @@ export async function GET(req: NextRequest) {
     const forward = new URL("/api/meta/ig-oauth/callback", base);
     forward.search = new URL(req.url).search;
     return NextResponse.redirect(forward);
+  }
+
+  // WhatsApp via Facebook Login: exchange the code for a long-lived user
+  // token, list the WABAs the user owns, and create a channel for each phone.
+  if (flow === "wa") {
+    return handleWhatsAppFlow(req, orgId, code);
   }
 
   await requireOrgMember(orgId);
@@ -166,4 +173,114 @@ export async function GET(req: NextRequest) {
   }).then(() => {});
 
   return redirectBack(req, orgId, "success", `${connectedCount} page${connectedCount === 1 ? "" : "s"}, ${igCount} Instagram`);
+}
+
+/**
+ * WhatsApp via Facebook Login (Option B). Exchange code → user token,
+ * find WABAs the user owns, list phone numbers, upsert one channel per
+ * phone, and subscribe each WABA to our webhook.
+ */
+async function handleWhatsAppFlow(req: NextRequest, orgId: string, code: string) {
+  await requireOrgMember(orgId);
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
+  const redirectUri = `${appUrl}/api/meta/oauth/callback`;
+  const orgCreds = await getMetaCredentials(orgId, "fb");
+  const appId = orgCreds?.appId ?? process.env.META_APP_ID;
+  const appSecret = orgCreds?.appSecret ?? process.env.META_APP_SECRET;
+  if (!appId || !appSecret) {
+    return redirectBack(req, orgId, "error", "Meta app credentials not configured.");
+  }
+
+  // 1. Exchange code → user token.
+  const tokenRes = await fetch(
+    `${GRAPH}/oauth/access_token?` +
+      new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        redirect_uri: redirectUri,
+        code,
+      }),
+  );
+  const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: { message: string } };
+  if (!tokenJson.access_token) {
+    return redirectBack(req, orgId, "error", tokenJson.error?.message ?? "WA token exchange failed");
+  }
+  const userToken = tokenJson.access_token;
+
+  // 2. List businesses the user owns + the WABAs under each.
+  const bizRes = await fetch(
+    `${GRAPH}/me/businesses?fields=id,name,owned_whatsapp_business_accounts{id,name,phone_numbers{id,display_phone_number,verified_name}}&access_token=${encodeURIComponent(userToken)}`,
+  );
+  const bizJson = (await bizRes.json()) as {
+    data?: Array<{
+      id: string;
+      owned_whatsapp_business_accounts?: {
+        data?: Array<{
+          id: string;
+          name?: string;
+          phone_numbers?: {
+            data?: Array<{ id: string; display_phone_number: string; verified_name: string }>;
+          };
+        }>;
+      };
+    }>;
+    error?: { message: string };
+  };
+  if (bizJson.error) {
+    return redirectBack(req, orgId, "error", bizJson.error.message);
+  }
+
+  const admin = createSupabaseAdminClient();
+  let phoneCount = 0;
+  const wabas: string[] = [];
+
+  for (const biz of bizJson.data ?? []) {
+    for (const waba of biz.owned_whatsapp_business_accounts?.data ?? []) {
+      wabas.push(waba.id);
+      // Subscribe this WABA to our webhook.
+      await fetch(
+        `${GRAPH}/${waba.id}/subscribed_apps?access_token=${encodeURIComponent(userToken)}`,
+        { method: "POST" },
+      ).catch(() => {});
+
+      for (const phone of waba.phone_numbers?.data ?? []) {
+        const cipher = bufferToPgBytea(encryptSecret(userToken));
+        await admin.from("channels").upsert(
+          {
+            org_id: orgId,
+            platform: "whatsapp",
+            external_id: phone.id,
+            display_name: phone.verified_name || phone.display_phone_number,
+            access_token_ciphertext: cipher,
+            status: "active",
+          },
+          { onConflict: "external_id" },
+        );
+        phoneCount++;
+      }
+    }
+  }
+
+  if (phoneCount === 0) {
+    return redirectBack(
+      req,
+      orgId,
+      "error",
+      "No WhatsApp phone numbers found on your account. Make sure you have at least one verified phone in WhatsApp Manager.",
+    );
+  }
+
+  await admin.from("audit_logs").insert({
+    org_id: orgId,
+    action: "channel_connected",
+    payload: { platform: "whatsapp", method: "fb_login", wabas, phones: phoneCount },
+  });
+
+  return redirectBack(
+    req,
+    orgId,
+    "success",
+    `WhatsApp · ${phoneCount} phone${phoneCount === 1 ? "" : "s"}`,
+  );
 }
