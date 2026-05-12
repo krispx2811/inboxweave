@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     template: "%s | InboxWeave",
   },
   description:
-    "Connect WhatsApp, Instagram, Messenger, SMS, and Email to one AI-powered inbox. Auto-reply with GPT-4o, upload your knowledge base, track analytics, and hand off to humans when it matters. 300 OMR one-time setup.",
+    "Connect WhatsApp, Instagram, and Messenger to one AI-powered inbox. Auto-reply with GPT-4o, upload your knowledge base, track analytics, and hand off to humans when it matters. 300 OMR one-time setup.",
   keywords: [
     "AI customer support",
     "WhatsApp business AI",
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
     siteName: "InboxWeave",
     title: "InboxWeave — AI-Powered Customer Messaging",
     description:
-      "Connect WhatsApp, Instagram, Messenger, SMS & Email to one AI inbox. GPT-4o auto-replies, knowledge base RAG, sentiment analysis, and team collaboration. 300 OMR one-time setup, no subscriptions.",
+      "Connect WhatsApp, Instagram & Messenger to one AI inbox. GPT-4o auto-replies, knowledge base RAG, sentiment analysis, and team collaboration. 300 OMR one-time setup, no subscriptions.",
     images: [
       {
         url: `${siteUrl}/og-image.png`,
@@ -58,7 +58,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "InboxWeave — AI-Powered Customer Messaging",
     description:
-      "One inbox for WhatsApp, Instagram, Messenger, SMS & Email. AI auto-replies with GPT-4o, knowledge base, analytics, and team tools. 300 OMR one-time setup.",
+      "One inbox for WhatsApp, Instagram & Messenger. AI auto-replies with GPT-4o, knowledge base, analytics, and team tools. 300 OMR one-time setup.",
     images: [`${siteUrl}/og-image.png`],
   },
   robots: {

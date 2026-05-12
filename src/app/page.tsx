@@ -20,14 +20,12 @@ const jsonLd = {
     priceCurrency: "OMR",
   },
   description:
-    "AI-powered customer messaging platform — 300 OMR one-time setup. Connect WhatsApp, Instagram, Messenger, SMS, and Email to one intelligent inbox with GPT-4o auto-replies.",
+    "AI-powered customer messaging platform — 300 OMR one-time setup. Connect WhatsApp, Instagram, and Messenger to one intelligent inbox with GPT-4o auto-replies.",
   featureList: [
     "AI auto-reply with GPT-4o",
     "WhatsApp Business Cloud API",
     "Instagram DM automation",
     "Facebook Messenger integration",
-    "SMS via Twilio",
-    "Email channel",
     "Knowledge base RAG",
     "Sentiment analysis",
     "Customer satisfaction tracking",
@@ -54,7 +52,7 @@ const faqJsonLd = {
       name: "Which messaging channels does InboxWeave support?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "InboxWeave supports WhatsApp (via Cloud API), Instagram DMs, Facebook Messenger, SMS (via Twilio), and Email (IMAP/SMTP). All channels appear in one unified inbox.",
+        text: "InboxWeave supports WhatsApp (via Cloud API), Instagram DMs, and Facebook Messenger. All channels appear in one unified inbox.",
       },
     },
     {
@@ -114,7 +112,7 @@ export default function Home() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-500 leading-relaxed">
-          Connect WhatsApp, Instagram, Messenger, SMS, and Email to one intelligent inbox.
+          Connect WhatsApp, Instagram, and Messenger to one intelligent inbox.
           AI replies instantly, learns your business, and hands off to humans when it matters.
         </p>
 
@@ -122,8 +120,6 @@ export default function Home() {
           <IconWhatsApp className="h-7 w-7 text-emerald-500 opacity-80" />
           <IconInstagram className="h-7 w-7 text-pink-500 opacity-80" />
           <IconFacebook className="h-7 w-7 text-blue-600 opacity-80" />
-          <span className="text-xs font-bold text-slate-400 tracking-widest">SMS</span>
-          <span className="text-xs font-bold text-slate-400 tracking-widest">EMAIL</span>
         </div>
 
         <div className="mt-10 flex items-center justify-center gap-4">
@@ -481,8 +477,6 @@ export default function Home() {
               { icon: <IconWhatsApp className="h-8 w-8" />, label: "WhatsApp", color: "text-emerald-500" },
               { icon: <IconInstagram className="h-8 w-8" />, label: "Instagram", color: "text-pink-500" },
               { icon: <IconFacebook className="h-8 w-8" />, label: "Messenger", color: "text-blue-600" },
-              { icon: <span className="text-sm font-extrabold">SMS</span>, label: "Twilio SMS", color: "text-red-500" },
-              { icon: <span className="text-sm font-extrabold">@</span>, label: "Email", color: "text-slate-600" },
             ].map(({ icon, label, color }) => (
               <div key={label} className={`flex flex-col items-center gap-2 ${color}`}>
                 {icon}
@@ -525,7 +519,7 @@ export default function Home() {
                 {[
                   "Full InboxWeave platform access",
                   "Unlimited organizations + team members",
-                  "All channels: WhatsApp, Instagram, Messenger, SMS, Email",
+                  "All channels: WhatsApp, Instagram, Messenger",
                   "AI auto-reply with knowledge base (RAG)",
                   "Sentiment, analytics, canned replies",
                   "Onboarding + initial channel connection",
@@ -649,8 +643,6 @@ export default function Home() {
                 <li><span className="text-slate-500">WhatsApp</span></li>
                 <li><span className="text-slate-500">Instagram DMs</span></li>
                 <li><span className="text-slate-500">Messenger</span></li>
-                <li><span className="text-slate-500">SMS (Twilio)</span></li>
-                <li><span className="text-slate-500">Email</span></li>
               </ul>
             </div>
             {/* Legal */}
