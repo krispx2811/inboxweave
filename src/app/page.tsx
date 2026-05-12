@@ -16,11 +16,11 @@ const jsonLd = {
   operatingSystem: "Web",
   offers: {
     "@type": "Offer",
-    price: "0",
-    priceCurrency: "USD",
+    price: "300",
+    priceCurrency: "OMR",
   },
   description:
-    "Free AI-powered customer messaging platform. Connect WhatsApp, Instagram, Messenger, SMS, and Email to one intelligent inbox with GPT-4o auto-replies.",
+    "AI-powered customer messaging platform — 300 OMR one-time setup. Connect WhatsApp, Instagram, Messenger, SMS, and Email to one intelligent inbox with GPT-4o auto-replies.",
   featureList: [
     "AI auto-reply with GPT-4o",
     "WhatsApp Business Cloud API",
@@ -43,10 +43,10 @@ const faqJsonLd = {
   mainEntity: [
     {
       "@type": "Question",
-      name: "Is InboxWeave really free?",
+      name: "How much does InboxWeave cost?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Yes, InboxWeave is 100% free forever. You bring your own OpenAI API key and pay OpenAI directly for usage (typically $1-5/month for small businesses). The platform itself is ad-supported with no charges.",
+        text: "300 OMR one-time setup fee gets you full platform access. Optional add-ons: 50 OMR/year for priority support and 10 OMR/month for AI token reload. Alternatively, bring your own OpenAI API key and skip the token fee.",
       },
     },
     {
@@ -95,15 +95,15 @@ export default function Home() {
             Sign in
           </Link>
           <Link href="/signup" className="btn btn-sm">
-            Get started free
+            Get started
           </Link>
         </div>
       </nav>
 
       {/* ── Hero ─────────────────────────────────────────────── */}
       <section className="mx-auto max-w-4xl px-6 pt-16 pb-20 text-center">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs font-semibold text-emerald-700">
-          100% Free &middot; No credit card &middot; No limits
+        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-700">
+          One-time 300 OMR setup &middot; Own your inbox &middot; No subscriptions
         </div>
 
         <h1 className="text-5xl font-extrabold tracking-tight text-slate-900 sm:text-6xl leading-[1.1]">
@@ -128,14 +128,14 @@ export default function Home() {
 
         <div className="mt-10 flex items-center justify-center gap-4">
           <Link href="/signup" className="btn px-8 py-3.5 text-base shadow-lg shadow-indigo-200">
-            Start free &rarr;
+            Get started &rarr;
           </Link>
-          <Link href="#features" className="btn-ghost px-6 py-3.5 text-base">
-            See features
+          <Link href="#pricing" className="btn-ghost px-6 py-3.5 text-base">
+            See pricing
           </Link>
         </div>
 
-        <p className="mt-4 text-xs text-slate-400">Free forever &middot; Bring your own OpenAI key &middot; Setup in 5 minutes</p>
+        <p className="mt-4 text-xs text-slate-400">300 OMR one-time setup &middot; 50 OMR/year support (optional) &middot; 10 OMR/month token reload (optional)</p>
       </section>
 
       {/* ── Ad slot 1 ────────────────────────────────────────── */}
@@ -495,44 +495,40 @@ export default function Home() {
 
       {/* ── Pricing ─────────────────────────────────────────── */}
       <section id="pricing" className="py-24">
-        <div className="mx-auto max-w-4xl px-6">
+        <div className="mx-auto max-w-5xl px-6">
           <div className="text-center mb-14">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs font-semibold text-emerald-700">
-              Seriously, it&apos;s free
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-700">
+              Simple, transparent pricing
             </div>
-            <h2 className="text-3xl font-extrabold tracking-tight">No subscriptions. No tiers.<br />Just use it.</h2>
+            <h2 className="text-3xl font-extrabold tracking-tight">One setup fee.<br />Optional support &amp; usage on top.</h2>
             <p className="mt-4 text-slate-500 max-w-xl mx-auto">
-              InboxWeave is completely free. You bring your own OpenAI API key and pay
-              OpenAI directly for what you use. We don&apos;t charge anything on top.
+              Pay once to own your InboxWeave setup. Choose support and AI usage
+              add-ons based on what you need.
             </p>
           </div>
 
-          <div className="mx-auto max-w-md">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            {/* Tier 1 — One-time setup */}
             <div className="rounded-2xl border-2 border-indigo-600 bg-white p-8 shadow-xl shadow-indigo-100 relative overflow-hidden">
               <div className="absolute top-0 right-0 rounded-bl-xl bg-indigo-600 px-4 py-1.5 text-xs font-bold text-white">
-                FOREVER
+                ONE-TIME
               </div>
+              <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">Setup</div>
               <div className="mb-6">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-5xl font-extrabold">$0</span>
-                  <span className="text-slate-500">/month</span>
+                  <span className="text-5xl font-extrabold">300</span>
+                  <span className="text-slate-500 font-semibold">OMR</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">Everything included. No catch.</p>
+                <p className="mt-2 text-sm text-slate-500">Pay once, set up your account.</p>
               </div>
-              <ul className="space-y-3 mb-8">
+              <ul className="space-y-3 mb-2">
                 {[
-                  "Unlimited organizations",
-                  "Unlimited conversations",
-                  "Unlimited team members",
-                  "All 5 channels (WA, IG, FB, SMS, Email)",
-                  "AI auto-reply with RAG",
-                  "Sentiment analysis + auto-escalation",
-                  "Dashboard + analytics + CSAT",
-                  "Canned replies + AI suggestions",
-                  "Knowledge base uploads",
-                  "Webhook events API",
-                  "GDPR tools + encryption",
-                  "PWA + push notifications",
+                  "Full InboxWeave platform access",
+                  "Unlimited organizations + team members",
+                  "All channels: WhatsApp, Instagram, Messenger, SMS, Email",
+                  "AI auto-reply with knowledge base (RAG)",
+                  "Sentiment, analytics, canned replies",
+                  "Onboarding + initial channel connection",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
                     <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -540,22 +536,67 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-              <Link href="/signup" className="btn w-full py-3.5 text-base shadow-lg shadow-indigo-200">
-                Get started free &rarr;
-              </Link>
-              <p className="mt-3 text-center text-[10px] text-slate-400">
-                You only pay OpenAI for API usage (typically $1-5/mo for small businesses)
-              </p>
+            </div>
+
+            {/* Tier 2 — Annual support */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-8">
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Support · Optional</div>
+              <div className="mb-6">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-5xl font-extrabold">50</span>
+                  <span className="text-slate-500 font-semibold">OMR</span>
+                  <span className="text-slate-400 text-sm">/year</span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">Priority help, knowledge-base updates, bug fixes for 12 months.</p>
+              </div>
+              <ul className="space-y-3 mb-2">
+                {[
+                  "Priority WhatsApp + email support",
+                  "Help editing knowledge base + prompts",
+                  "Bug fixes and feature requests",
+                  "Token + channel reconnection assistance",
+                  "Renewable yearly",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Tier 3 — Token reload */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-8">
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">AI tokens · Pay as you go</div>
+              <div className="mb-6">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-5xl font-extrabold">10</span>
+                  <span className="text-slate-500 font-semibold">OMR</span>
+                  <span className="text-slate-400 text-sm">/month</span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">Reload AI tokens monthly. Or bring your own OpenAI key for free.</p>
+              </div>
+              <ul className="space-y-3 mb-2">
+                {[
+                  "Monthly AI token allocation",
+                  "Covers typical small-business traffic",
+                  "No setup, we handle billing with OpenAI",
+                  "Alternative: bring your own OpenAI API key at no charge",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    {f}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
 
           <div className="mt-10 text-center">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Why is it free?</p>
-            <p className="text-sm text-slate-500 max-w-lg mx-auto leading-relaxed">
-              InboxWeave is ad-supported. We show non-intrusive ads on the marketing site to cover
-              hosting costs. The app itself (your inbox, dashboard, settings) is completely ad-free.
-              Your data is never used for advertising.
-            </p>
+            <Link href="/signup" className="btn px-10 py-4 text-base shadow-lg shadow-indigo-200">
+              Get started &rarr;
+            </Link>
+            <p className="mt-3 text-xs text-slate-400">300 OMR one-time setup &middot; Support and tokens optional</p>
           </div>
         </div>
       </section>
@@ -571,9 +612,9 @@ export default function Home() {
             Join businesses using AI to respond faster, resolve more, and keep customers happy.
           </p>
           <Link href="/signup" className="btn mt-8 px-10 py-4 text-base shadow-lg shadow-indigo-200">
-            Get started free &rarr;
+            Get started &rarr;
           </Link>
-          <p className="mt-3 text-xs text-slate-400">100% free &middot; Ad-supported &middot; No credit card ever</p>
+          <p className="mt-3 text-xs text-slate-400">300 OMR one-time &middot; Support &amp; tokens optional</p>
         </div>
       </section>
 
