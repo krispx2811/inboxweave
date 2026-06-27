@@ -60,6 +60,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   if (
     cachedChannel &&
     cachedChannel.status === "active" &&
+    cachedChannel.aiEnabled &&
     (cachedChannel.platform === "instagram" || cachedChannel.platform === "messenger")
   ) {
     sendTypingIndicatorFast({
@@ -82,6 +83,13 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
+  const orgId = channel.org_id as string;
+
+  // Org-wide AI master switch (the dashboard kill switch). Read once and reused
+  // for the gate below; also cached so the next inbound's fast-path typing
+  // indicator can be suppressed without a DB round-trip.
+  const orgAiEnabled = await isOrgAiEnabled(orgId);
+
   // Refresh the cache with the fresh row for the next inbound.
   setCachedChannel(msg.platform, msg.channelExternalId, {
     id: channel.id as string,
@@ -89,14 +97,15 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     platform: channel.platform as string,
     status: channel.status as string,
     access_token_ciphertext: channel.access_token_ciphertext as string,
+    aiEnabled: orgAiEnabled,
   });
 
-  const orgId = channel.org_id as string;
-
   // Slow path: no cache hit (cold start or first message on this channel).
-  // Fire now, in parallel with DB writes below.
+  // Fire now, in parallel with DB writes below. Skip the bubble when the AI
+  // master switch is off — no reply is coming.
   if (
     !cachedChannel &&
+    orgAiEnabled &&
     channel.status === "active" &&
     (channel.platform === "instagram" || channel.platform === "messenger")
   ) {
@@ -373,7 +382,8 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // Org-wide AI master switch (the dashboard kill switch). When off, the AI
   // stops auto-replying for EVERY conversation. The inbound message was already
   // stored above, so it simply queues in the inbox for a human to handle.
-  if (!(await isOrgAiEnabled(orgId))) {
+  // (orgAiEnabled was read near the top of the handler.)
+  if (!orgAiEnabled) {
     await admin.from("audit_logs").insert({
       org_id: orgId,
       action: "ai_reply_skipped",

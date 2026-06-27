@@ -15,6 +15,10 @@ export interface CachedChannel {
   platform: string;
   status: string;
   access_token_ciphertext: string;
+  // Org-wide AI master switch, cached so the fast-path typing indicator can be
+  // suppressed without a DB round-trip. Up to 60s stale on a warm instance; the
+  // actual reply is always gated against a fresh read.
+  aiEnabled: boolean;
 }
 
 interface Entry {
