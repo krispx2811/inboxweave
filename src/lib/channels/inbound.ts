@@ -1,7 +1,7 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { ChannelPlatform } from "@/lib/supabase/types";
-import { generateReply, detectLanguage } from "@/lib/ai/openai";
+import { generateReply, detectLanguage, isOrgAiEnabled } from "@/lib/ai/openai";
 import { retrieveContext } from "@/lib/ai/rag";
 import { analyzeSentiment } from "@/lib/ai/analysis";
 import { classifyConversation } from "@/lib/ai/classify";
@@ -369,6 +369,18 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
 
   // 7. AI reply, if enabled, channel healthy, and there is text.
   if (!convo.ai_enabled || !msg.text) return;
+
+  // Org-wide AI master switch (the dashboard kill switch). When off, the AI
+  // stops auto-replying for EVERY conversation. The inbound message was already
+  // stored above, so it simply queues in the inbox for a human to handle.
+  if (!(await isOrgAiEnabled(orgId))) {
+    await admin.from("audit_logs").insert({
+      org_id: orgId,
+      action: "ai_reply_skipped",
+      payload: { conversation_id: convo.id, reason: "org_master_disabled" },
+    });
+    return;
+  }
   if (channel.status !== "active") {
     await admin.from("audit_logs").insert({
       org_id: orgId,
@@ -400,21 +412,21 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
-  // Re-check ai_enabled after the debounce — the owner may have typed
-  // "stop" in the inbox composer or toggled the Pause AI button while we
-  // were waiting. Also catches sentiment-based auto-escalation.
-  const { data: freshConvo } = await admin
-    .from("conversations")
-    .select("ai_enabled")
-    .eq("id", convo.id)
-    .maybeSingle();
-  if (!freshConvo?.ai_enabled) {
+  // Re-check both kill switches after the debounce — the owner may have typed
+  // "stop" in the inbox composer, toggled the per-conversation Pause AI button,
+  // or flipped the dashboard master switch while we were waiting. Also catches
+  // sentiment-based auto-escalation.
+  const [{ data: freshConvo }, orgStillEnabled] = await Promise.all([
+    admin.from("conversations").select("ai_enabled").eq("id", convo.id).maybeSingle(),
+    isOrgAiEnabled(orgId),
+  ]);
+  if (!freshConvo?.ai_enabled || !orgStillEnabled) {
     await admin.from("audit_logs").insert({
       org_id: orgId,
       action: "ai_reply_skipped",
       payload: {
         conversation_id: convo.id,
-        reason: "ai_disabled_during_debounce",
+        reason: !orgStillEnabled ? "org_master_disabled" : "ai_disabled_during_debounce",
       },
     });
     return;

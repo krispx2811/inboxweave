@@ -30,6 +30,10 @@ export interface AiSettings {
   system_prompt: string;
   model: string;
   temperature: number;
+  // Org-wide AI master switch (dashboard kill switch). When false the AI stops
+  // auto-replying across every conversation. Independent of the per-conversation
+  // conversations.ai_enabled flag.
+  ai_enabled: boolean;
   updated_at: string;
 }
 

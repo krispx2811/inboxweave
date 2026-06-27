@@ -68,6 +68,23 @@ export async function getAiSettings(orgId: string): Promise<AiSettings> {
   );
 }
 
+/**
+ * Org-wide AI master switch (the dashboard kill switch). Returns true when the
+ * AI is allowed to auto-reply for this org. Defaults to true when no settings
+ * row exists yet, so the AI is on by default for new orgs.
+ */
+export async function isOrgAiEnabled(orgId: string): Promise<boolean> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("ai_settings")
+    .select("ai_enabled")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  // Treat a missing row or a null column as "on".
+  return data?.ai_enabled !== false;
+}
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;

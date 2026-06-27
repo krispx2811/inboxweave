@@ -10,6 +10,7 @@ import {
 import { AnimatedBarChart } from "@/components/charts/AnimatedBar";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { DateRangePicker } from "@/components/charts/DateRangePicker";
+import { setOrgAiEnabled } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,14 @@ export default async function DashboardPage({
     .order("created_at", { ascending: false })
     .limit(5);
 
+  // Org-wide AI master switch state. Defaults to on when no settings row exists.
+  const { data: aiSettings } = await admin
+    .from("ai_settings")
+    .select("ai_enabled")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  const aiEnabled = aiSettings?.ai_enabled !== false;
+
   const totalReplies = a.messages.ai_replies + a.messages.human_replies;
   const aiRate = totalReplies > 0 ? Math.round((a.messages.ai_replies / totalReplies) * 100) : 0;
   const maxDaily = Math.max(...a.daily.map((d) => d.inbound + d.outbound), 1);
@@ -109,6 +118,37 @@ export default async function DashboardPage({
         </div>
         <DateRangePicker basePath={`/app/${orgId}/dashboard`} />
       </div>
+
+      {/* ── AI Master Switch ────────────────────────────────── */}
+      <section className="card mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${aiEnabled ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-600"}`}>
+              <IconSparkle className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold">AI Assistant</h2>
+                <span className={aiEnabled ? "badge-green" : "badge-amber"}>
+                  {aiEnabled ? "AI is ON" : "AI is OFF"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5 max-w-md">
+                {aiEnabled
+                  ? "The AI is auto-replying to incoming messages across all conversations."
+                  : "Auto-replies are paused for every conversation. Incoming messages still arrive in the inbox for your team."}
+              </p>
+            </div>
+          </div>
+          <form action={setOrgAiEnabled}>
+            <input type="hidden" name="orgId" value={orgId} />
+            <input type="hidden" name="enabled" value={aiEnabled ? "" : "true"} />
+            <button className={`btn-sm ${aiEnabled ? "btn-ghost" : "btn"}`} type="submit">
+              <IconSparkle className="h-3.5 w-3.5" /> {aiEnabled ? "Turn AI off" : "Turn AI on"}
+            </button>
+          </form>
+        </div>
+      </section>
 
       {/* ── Stat Cards ──────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
