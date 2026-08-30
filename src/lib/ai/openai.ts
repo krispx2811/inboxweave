@@ -1,6 +1,7 @@
 import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { redactUnsupportedAmounts, supportedAmounts } from "./price-guard";
 
 // GPT-4o-mini pricing per 1M tokens (USD).
 const PRICING: Record<string, { prompt: number; completion: number }> = {
@@ -90,6 +91,7 @@ export interface ChatTurn {
   content: string;
 }
 
+
 interface ChatCompletionResult {
   choices: Array<{ message?: { content?: string } }>;
   usage?: { prompt_tokens: number; completion_tokens: number };
@@ -165,18 +167,59 @@ export async function generateReply(params: {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const settings = await getAiSettings(params.orgId);
 
+  // Amounts the knowledge base currently supports. With no retrieved context
+  // there is nothing to check against, so redaction is skipped entirely rather
+  // than blanking every price in the thread.
+  const live = supportedAmounts(params.retrievedContext);
+  const redact = (text: string) =>
+    live.size > 0 ? redactUnsupportedAmounts(text, live) : text;
+
+  // Only the assistant's own turns are cleaned. A customer quoting a price back
+  // at us ("you said 490") must survive verbatim, or the model loses the thread.
+  const history = params.retrievedContext.length > 0
+    ? params.history.map((turn) =>
+        turn.role === "assistant" ? { ...turn, content: redact(turn.content) } : turn,
+      )
+    : params.history;
+
+  // Same treatment for the two other channels that carry the assistant's past
+  // words: summaries of earlier conversations, and the rolling summary of this
+  // one. Both are generated from transcripts and inherit their stale figures.
+  const contactMemory =
+    params.retrievedContext.length > 0
+      ? params.contactMemory?.map(redact)
+      : params.contactMemory;
+  const priorSummary =
+    params.retrievedContext.length > 0 && params.priorSummary
+      ? redact(params.priorSummary)
+      : params.priorSummary;
+
   const contextBlock =
     params.retrievedContext.length > 0
-      ? `\n\nYou have access to the following knowledge about this business. Use it when relevant; do not invent facts beyond it:\n---\n${params.retrievedContext.join("\n---\n")}\n---`
+      ? `\n\nKNOWLEDGE BASE — THE AUTHORITATIVE SOURCE OF TRUTH FOR THIS BUSINESS:\n---\n${params.retrievedContext.join("\n---\n")}\n---`
       : "";
+
+  // Ranks the competing inputs to this prompt. Without it the model has no way
+  // to order the per-org system prompt, past-conversation summaries, its own
+  // earlier replies, and the retrieved knowledge base — so a stale figure (one
+  // baked into an org's prompt, or one the assistant quoted earlier in the
+  // thread) silently beats a freshly updated knowledge base. Only meaningful
+  // when there IS retrieved context, so it's gated on that below.
+  const precedence =
+    "\n\nSOURCE PRECEDENCE — APPLY BEFORE ANSWERING:\n" +
+    "1. The KNOWLEDGE BASE block is the single source of truth for every price, fee, phone number, date, address, and policy.\n" +
+    "2. It OVERRIDES anything stated earlier in this system prompt, any past-conversation summary, and — critically — anything YOU said earlier in this conversation.\n" +
+    "3. If a figure you quoted earlier in this thread disagrees with the knowledge base, the knowledge base is right and your earlier message was wrong. Quote the knowledge base value. Do not repeat or defend the earlier number, and do not draw attention to the change unless the customer asks about it.\n" +
+    "4. If the KNOWLEDGE BASE ITSELF gives two different values for the same item, do NOT pick one and do NOT average them. Say the exact figure depends on the specific case and offer to confirm it with the team.\n" +
+    "5. Values introduced as illustrations — anything after 'e.g.', 'for example', 'sample', or shown as a placeholder like XX — are formatting demonstrations, NOT real data. Never quote them as facts.";
 
   const memoryBlock =
-    params.contactMemory && params.contactMemory.length > 0
-      ? `\n\nYou have spoken with this customer before. Use these past summaries as background — reference them naturally when relevant but do not re-introduce topics the customer hasn't asked about:\n${params.contactMemory.join("\n")}`
+    contactMemory && contactMemory.length > 0
+      ? `\n\nYou have spoken with this customer before. Use these past summaries as background — reference them naturally when relevant but do not re-introduce topics the customer hasn't asked about. These summaries were written in the past and MAY CONTAIN OUTDATED PRICES OR DETAILS; the knowledge base always wins over them:\n${contactMemory.join("\n")}`
       : "";
 
-  const summaryBlock = params.priorSummary
-    ? `\n\nEarlier in this same conversation (paraphrased summary):\n${params.priorSummary}\n\nThe turns below continue from that point.`
+  const summaryBlock = priorSummary
+    ? `\n\nEarlier in this same conversation (paraphrased summary):\n${priorSummary}\n\nThe turns below continue from that point.`
     : "";
 
   const languageInstruction = params.replyInLanguage
@@ -207,8 +250,20 @@ export async function generateReply(params: {
     model,
     temperature: settings.temperature,
     messages: [
-      { role: "system", content: settings.system_prompt + memoryBlock + summaryBlock + contextBlock + languageInstruction + contextInstruction + antiHallucination },
-      ...params.history.map((h) => ({ role: h.role, content: h.content })),
+      {
+        role: "system",
+        content:
+          settings.system_prompt +
+          memoryBlock +
+          summaryBlock +
+          contextBlock +
+          languageInstruction +
+          contextInstruction +
+          antiHallucination +
+          // Last, so it sits closest to the conversation it governs.
+          (params.retrievedContext.length > 0 ? precedence : ""),
+      },
+      ...history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: params.userMessage },
     ],
   });
