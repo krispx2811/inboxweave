@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   }
 
   const firstPageId = messages[0]!.pageId;
-  const orgId = await findOrgByChannelExternalId(firstPageId);
+  const orgId = await findOrgByChannelExternalId(firstPageId, "instagram");
 
   // No channel matches this external_id. Most likely this is Meta's Test
   // button (which sends entry.id = "0") or a webhook for an account that
@@ -106,6 +106,17 @@ export async function POST(req: NextRequest) {
   });
   if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
 
+  // A per-org signature only proves the payload was signed with that org's
+  // app secret, so drop entries for channels owned by any other org.
+  const scoped: typeof messages = [];
+  for (const m of messages) {
+    if (creds && (await findOrgByChannelExternalId(m.pageId, "instagram")) !== orgId) {
+      console.warn(`[instagram webhook] dropping entry for external_id=${m.pageId}: not owned by signing org=${orgId}`);
+      continue;
+    }
+    scoped.push(m);
+  }
+
   // Defer the heavy lifting (AI generate + send + DB writes) until AFTER
   // the 200 response is out the door. Keeps us well under Meta's ~5s
   // webhook retry threshold even when OpenAI or Meta's send API is slow.
@@ -125,7 +136,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Dedupe — Meta sometimes redelivers the same event.
-      const ids = messages.map((m) => m.platformMessageId).filter((x): x is string => !!x);
+      const ids = scoped.map((m) => m.platformMessageId).filter((x): x is string => !!x);
       let seenIds = new Set<string>();
       if (ids.length > 0) {
         const { data: dupes } = await admin
@@ -135,7 +146,7 @@ export async function POST(req: NextRequest) {
         seenIds = new Set((dupes ?? []).map((d) => d.platform_message_id as string));
       }
 
-      for (const m of messages) {
+      for (const m of scoped) {
         if (m.platformMessageId && seenIds.has(m.platformMessageId)) continue;
         if (m.isEcho) {
           await handleOwnerEcho({

@@ -43,21 +43,36 @@ export async function POST(req: NextRequest) {
   if (messages.length === 0) return NextResponse.json({ ok: true });
 
   const firstPageId = messages[0]!.pageId;
-  const orgId = await findOrgByChannelExternalId(firstPageId);
+  const orgId = await findOrgByChannelExternalId(firstPageId, "messenger");
 
   let appSecret = process.env.META_APP_SECRET;
+  let signedByOrg = false;
   if (orgId) {
     const creds = await getMetaCredentials(orgId, "fb");
-    if (creds) appSecret = creds.appSecret;
+    if (creds) {
+      appSecret = creds.appSecret;
+      signedByOrg = true;
+    }
   }
   if (!appSecret) return new NextResponse("not configured", { status: 500 });
   if (!verifyMetaSignatureWithSecret(raw, sig, appSecret)) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
+  // A per-org signature only proves the payload was signed with that org's
+  // app secret, so drop entries for channels owned by any other org.
+  const scoped: typeof messages = [];
+  for (const m of messages) {
+    if (signedByOrg && (await findOrgByChannelExternalId(m.pageId, "messenger")) !== orgId) {
+      console.warn(`[messenger webhook] dropping entry for external_id=${m.pageId}: not owned by signing org=${orgId}`);
+      continue;
+    }
+    scoped.push(m);
+  }
+
   after(async () => {
     try {
-      for (const m of messages) {
+      for (const m of scoped) {
         if (m.isEcho) {
           await handleOwnerEcho({
             platform: "messenger",

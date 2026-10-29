@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
@@ -11,10 +12,21 @@ import { markChannelUnhealthy } from "@/lib/channels/health";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Fail closed: 401 unless CRON_SECRET is set and sent as a Bearer token. */
+function isAuthorizedCron(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  const header = req.headers.get("authorization") ?? "";
+  const theirs = Buffer.from(header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "", "utf8");
+  const ours = Buffer.from(secret, "utf8");
+  return theirs.length === ours.length && timingSafeEqual(theirs, ours);
+}
+
 /**
  * Refreshes long-lived access tokens for Instagram Business Login channels.
  * Call daily:
- *   GET /api/cron/refresh-tokens?key=<CRON_SECRET>
+ *   GET /api/cron/refresh-tokens
+ *   Authorization: Bearer <CRON_SECRET>
  *
  * Meta IG Business Login tokens are valid for 60 days. Calling the refresh
  * endpoint within that window resets the clock. This job refreshes any IG
@@ -24,9 +36,8 @@ export const dynamic = "force-dynamic";
  * permanent (derived from a long-lived user token) so we don't refresh them.
  */
 export async function GET(req: NextRequest) {
-  const key = req.nextUrl.searchParams.get("key");
-  if (process.env.CRON_SECRET && key !== process.env.CRON_SECRET) {
-    return new NextResponse("forbidden", { status: 403 });
+  if (!isAuthorizedCron(req)) {
+    return new NextResponse("unauthorized", { status: 401 });
   }
 
   const admin = createSupabaseAdminClient();

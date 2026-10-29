@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 import { getMetaCredentials } from "@/lib/channels/meta-settings";
 import { requireOrgMember } from "@/lib/auth/guards";
+import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,6 +112,15 @@ export async function POST(req: NextRequest) {
     ).catch(() => {});
 
     for (const phone of phonesJson.data ?? []) {
+      try {
+        await assertChannelNotOwnedElsewhere(admin, {
+          platform: "whatsapp",
+          externalId: phone.id,
+          orgId: parsed.orgId,
+        });
+      } catch (err) {
+        return new NextResponse((err as Error).message, { status: 409 });
+      }
       const cipher = bufferToPgBytea(encryptSecret(accessToken));
       await admin
         .from("channels")

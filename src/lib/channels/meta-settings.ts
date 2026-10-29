@@ -99,18 +99,23 @@ export async function getAppSecretForProduct(
   return creds?.appSecret ?? null;
 }
 
-export async function findOrgByChannelExternalId(externalId: string): Promise<string | null> {
-  const cached = memoGet(orgByExtIdCache, externalId);
+export async function findOrgByChannelExternalId(
+  externalId: string,
+  platform?: string,
+): Promise<string | null> {
+  const cacheKey = `${platform ?? "*"}:${externalId}`;
+  const cached = memoGet(orgByExtIdCache, cacheKey);
   if (cached.hit) return cached.value;
 
   const admin = createSupabaseAdminClient();
-  const { data } = await admin
+  let query = admin
     .from("channels")
     .select("org_id")
-    .eq("external_id", externalId)
-    .maybeSingle();
+    .eq("external_id", externalId);
+  if (platform) query = query.eq("platform", platform);
+  const { data } = await query.maybeSingle();
   const orgId = (data?.org_id as string | undefined) ?? null;
-  memoSet(orgByExtIdCache, externalId, orgId);
+  memoSet(orgByExtIdCache, cacheKey, orgId);
   return orgId;
 }
 
