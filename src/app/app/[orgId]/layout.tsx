@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { IconInbox, IconChannels, IconKnowledge, IconSettings, IconArrowLeft, IconChart, IconUser, IconBolt, IconTag } from "@/components/icons";
 import { LogoIcon } from "@/components/Logo";
 import { OnboardingTooltip } from "@/components/OnboardingTooltip";
+import { NavLink } from "@/components/NavLink";
 
 export default async function OrgLayout({
   children,
@@ -50,10 +51,10 @@ export default async function OrgLayout({
             };
             const tip = tooltips[item.label];
             const link = (
-              <Link key={item.href} href={item.href} className="nav-link">
+              <NavLink key={item.href} href={item.href} className="nav-link">
                 <item.icon className="h-5 w-5 shrink-0" />
                 {item.label}
-              </Link>
+              </NavLink>
             );
             return tip ? (
               <OnboardingTooltip key={item.href} id={`nav-${item.label}`} message={tip.msg} priority={tip.priority}>

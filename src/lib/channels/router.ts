@@ -2,6 +2,7 @@ import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { ChannelPlatform } from "@/lib/supabase/types";
+import { formatForPlatform } from "./format";
 import { sendWhatsAppText } from "./whatsapp";
 import { sendMessengerSenderAction, sendMessengerText } from "./messenger";
 import { sendInstagramSenderAction, sendInstagramText } from "./instagram";
@@ -46,13 +47,16 @@ export async function sendOutbound(params: {
     setCachedDecryptedToken(channelId, token);
   }
 
+  // The AI writes Markdown; send what the customer's app actually renders.
+  const text = formatForPlatform(params.text, channel.platform as string);
+
   const dispatch = async (): Promise<{ platformMessageId?: string; platform: ChannelPlatform }> => {
     if (channel.platform === "whatsapp") {
       const { messageId } = await sendWhatsAppText({
         phoneNumberId: channel.external_id,
         accessToken: token,
         to: convo.contact_external_id,
-        text: params.text,
+        text,
       });
       return { platformMessageId: messageId, platform: "whatsapp" };
     }
@@ -60,7 +64,7 @@ export async function sendOutbound(params: {
       const { messageId } = await sendMessengerText({
         pageAccessToken: token,
         recipientPsid: convo.contact_external_id,
-        text: params.text,
+        text,
       });
       return { platformMessageId: messageId, platform: "messenger" };
     }
@@ -71,7 +75,7 @@ export async function sendOutbound(params: {
       const { messageId } = await sendInstagramText({
         pageAccessToken: token,
         recipientId: convo.contact_external_id,
-        text: params.text,
+        text,
         useFacebookGraph: !isIgBusinessToken,
       });
       return { platformMessageId: messageId, platform: "instagram" };
@@ -87,7 +91,7 @@ export async function sendOutbound(params: {
       const { messageId } = await sendSms({
         orgId: convoFull?.org_id as string,
         to: convo.contact_external_id,
-        text: params.text,
+        text,
       });
       return { platformMessageId: messageId, platform: "sms" };
     }
