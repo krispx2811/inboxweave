@@ -23,6 +23,16 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createSupabaseAdminClient();
+
+  // Verify membership.
+  const { data: member } = await admin
+    .from("org_members")
+    .select("role")
+    .eq("org_id", body.orgId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!member) return new NextResponse("forbidden", { status: 403 });
+
   await admin.from("push_subscriptions").upsert(
     {
       user_id: user.id,

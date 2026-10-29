@@ -1,19 +1,22 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth/guards";
+import { requirePlatformAdmin } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { BACKGROUND_MODEL, chatRequestBody } from "@/lib/ai/models";
 
 export const runtime = "nodejs";
 
+// OpenAI error bodies echo a masked key ("sk-proj-****abcd"); strip it.
+const redactKey = (s: string) => s.replace(/sk-[A-Za-z0-9_*-]+/g, "sk-[redacted]");
+
 /**
  * Diagnostic endpoint: tests the OpenAI key flow end-to-end.
  * Returns redacted info about what the server is seeing.
  *
- * Auth: any signed-in user. Doesn't leak the actual key.
+ * Auth: platform admins only. Returns no secret-derived values.
  */
 export async function GET() {
-  await requireUser();
+  await requirePlatformAdmin();
 
   const result: Record<string, unknown> = {};
 
@@ -22,8 +25,6 @@ export async function GET() {
   result.env_SECRETS_ENCRYPTION_KEY = secretsKey
     ? {
         present: true,
-        length: secretsKey.length,
-        prefix: secretsKey.slice(0, 8) + "...",
         isValidHex: /^[0-9a-fA-F]+$/.test(secretsKey),
         is32Bytes: secretsKey.length === 64,
       }
@@ -64,12 +65,8 @@ export async function GET() {
       );
       result.decrypt = {
         ok: true,
-        length: decrypted.length,
-        prefix: decrypted.slice(0, 10),
         looksLikeKey: decrypted.startsWith("sk-"),
         hasWhitespace: /\s/.test(decrypted),
-        firstCharCode: decrypted.charCodeAt(0),
-        lastCharCode: decrypted.charCodeAt(decrypted.length - 1),
       };
     } catch (err) {
       result.decrypt = { ok: false, error: (err as Error).message };
@@ -92,7 +89,7 @@ export async function GET() {
     const openaiText = await openaiRes.text();
     result.openai_direct = {
       status: openaiRes.status,
-      bodyPreview: openaiText.slice(0, 300),
+      bodyPreview: redactKey(openaiText.slice(0, 300)),
     };
 
     // 5. Also try with SDK
@@ -106,7 +103,7 @@ export async function GET() {
       });
       result.openai_sdk = { ok: true, id: sdkRes.id };
     } catch (err) {
-      result.openai_sdk = { ok: false, error: (err as Error).message };
+      result.openai_sdk = { ok: false, error: redactKey((err as Error).message) };
     }
   } catch (err) {
     result.error = (err as Error).message;
