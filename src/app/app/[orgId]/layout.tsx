@@ -30,8 +30,28 @@ export default async function OrgLayout({
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
+    <div className="flex h-screen flex-col bg-slate-50 md:flex-row">
+      {/* Phones: a compact top bar with a scrollable tab row instead of the
+          240px sidebar, which left ~135px for the page at 375px wide. */}
+      <header className="shrink-0 border-b border-slate-200 bg-white md:hidden">
+        <div className="flex items-center gap-2.5 px-4 pt-3">
+          <Link href="/home" aria-label="All organizations" className="btn-icon -ml-1 text-slate-400 hover:text-slate-600">
+            <IconArrowLeft className="h-4 w-4" />
+          </Link>
+          <LogoIcon size={24} />
+          <span className="text-sm font-bold truncate">{org?.name}</span>
+        </div>
+        <nav aria-label="Sections" className="flex gap-1 overflow-x-auto px-3 py-2">
+          {nav.map((item) => (
+            <NavLink key={item.href} href={item.href} className="nav-link shrink-0 !gap-1.5 !px-2.5 !py-1.5 whitespace-nowrap">
+              <item.icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
         <div className="border-b border-slate-100 px-5 py-4">
           <Link href="/home" className="mb-1 inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors">
             <IconArrowLeft className="h-3 w-3" /> All orgs
@@ -72,7 +92,7 @@ export default async function OrgLayout({
           </form>
         </div>
       </aside>
-      <div className="flex-1 overflow-y-auto">{children}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
     </div>
   );
 }

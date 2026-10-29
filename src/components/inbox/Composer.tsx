@@ -48,10 +48,14 @@ function ComposerInput({ text, setText }: { text: string; setText: (v: string) =
     <input
       className="input flex-1 !rounded-full !px-5"
       name="text"
-      placeholder={pending ? "Sending..." : "Type a message..."}
+      aria-label="Message"
+      placeholder={pending ? "Sending…" : "Type a message…"}
       value={text}
       onChange={(e) => setText(e.target.value)}
       autoComplete="off"
+      enterKeyHint="send"
+      dir="auto"
+      maxLength={4000}
       disabled={pending}
     />
   );
@@ -62,7 +66,7 @@ function ComposerSubmit({ disabled }: { disabled: boolean }) {
   return (
     <button
       type="submit"
-      className="btn !rounded-full !p-3"
+      className="btn !rounded-full !p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
       aria-label="Send"
       disabled={pending || disabled}
     >

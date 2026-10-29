@@ -18,7 +18,7 @@ export default function InboxError({
       <div className="rounded-lg border border-red-200 bg-red-50 p-5">
         <h1 className="text-lg font-semibold text-red-900">Inbox failed to load</h1>
         <p className="mt-1 text-sm text-red-800">
-          Something went wrong rendering your inbox. We've logged the error —
+          Something went wrong rendering your inbox. We&apos;ve logged the error —
           please try again. If this keeps happening, share the reference id
           below with support.
         </p>
@@ -28,6 +28,7 @@ export default function InboxError({
           </div>
         )}
         <button
+          type="button"
           onClick={reset}
           className="mt-5 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
         >

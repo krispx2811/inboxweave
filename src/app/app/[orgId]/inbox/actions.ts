@@ -392,6 +392,28 @@ export async function markRead(formData: FormData) {
   revalidatePath(`/app/${orgId}/inbox`);
 }
 
+const MarkReadSchema = z.object({
+  orgId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+});
+
+/**
+ * Called by the inbox when a conversation is opened. Deliberately doesn't
+ * revalidate: the list already renders the open conversation as read, and a
+ * re-render on every open would refetch the whole inbox.
+ */
+export async function markConversationRead(input: { orgId: string; conversationId: string }) {
+  const parsed = MarkReadSchema.parse(input);
+  await requireOrgMember(parsed.orgId);
+  const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
+  await admin
+    .from("conversations")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", parsed.conversationId)
+    .eq("org_id", parsed.orgId);
+}
+
 // ─── Generate AI summary ────────────────────────────────────────────────────
 
 export async function generateConversationSummary(formData: FormData) {
