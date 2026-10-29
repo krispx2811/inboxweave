@@ -4,8 +4,15 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
+import { bufferToPgBytea, decryptSecret, encryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
+import {
+  checkWhatsAppConnection,
+  inspectToken,
+  subscribeWhatsAppWebhooks,
+  tokenExpiry,
+  type WhatsAppHealth,
+} from "@/lib/channels/whatsapp-health";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -58,6 +65,16 @@ export async function connectWhatsApp(formData: FormData) {
     verified_name?: string;
   };
 
+  // A temporary or user-login token stops working (when it expires, or when
+  // that person logs out of Facebook), and the channel silently goes dead.
+  // Only accept tokens that never expire, i.e. System User tokens.
+  const expiry = tokenExpiry(await inspectToken(parsed.accessToken));
+  if (!expiry.permanent) {
+    throw new Error(
+      `This token isn't permanent (${expiry.detail.toLowerCase()}), so WhatsApp would stop working when it does. In Meta Business Settings → Users → System users, generate a token with "Never" expiry and the whatsapp_business_messaging and whatsapp_business_management permissions, then connect with that.`,
+    );
+  }
+
   const admin = createSupabaseAdminClient();
   await assertChannelNotOwnedElsewhere(admin, {
     platform: "whatsapp",
@@ -80,13 +97,79 @@ export async function connectWhatsApp(formData: FormData) {
   );
   if (error) throw new Error(error.message);
 
+  // Without this subscription Meta never delivers incoming messages. Best
+  // effort: "Test connection" shows and fixes it if this didn't work.
+  const health = await checkWhatsAppConnection(parsed.accessToken, parsed.phoneNumberId);
+  const webhook = health.canSubscribe && health.wabaId
+    ? await subscribeWhatsAppWebhooks(parsed.accessToken, health.wabaId)
+    : { ok: health.checks.at(-1)?.ok ?? false };
+
   await admin.from("audit_logs").insert({
     org_id: parsed.orgId,
     user_id: ctx.userId,
     action: "channel_connected",
-    payload: { platform: "whatsapp", external_id: parsed.phoneNumberId },
+    payload: { platform: "whatsapp", external_id: parsed.phoneNumberId, webhook_subscribed: webhook.ok },
   });
   revalidatePath(`/app/${parsed.orgId}/channels`);
+}
+
+const ChannelRefSchema = z.object({
+  orgId: z.string().uuid(),
+  channelId: z.string().uuid(),
+});
+
+export type WhatsAppCheckState = { health?: WhatsAppHealth; message?: string; error?: string } | null;
+
+async function loadWhatsAppChannel(formData: FormData) {
+  const parsed = ChannelRefSchema.parse({
+    orgId: formData.get("orgId"),
+    channelId: formData.get("channelId"),
+  });
+  const ctx = await requireOrgMember(parsed.orgId);
+  const admin = createSupabaseAdminClient();
+  await assertChannelInOrg(admin, parsed.channelId, parsed.orgId);
+  const { data: channel, error } = await admin
+    .from("channels")
+    .select("external_id, platform, access_token_ciphertext")
+    .eq("id", parsed.channelId)
+    .eq("org_id", parsed.orgId)
+    .single();
+  if (error || !channel || channel.platform !== "whatsapp") throw new Error("WhatsApp channel not found");
+  const token = decryptSecret(pgByteaToBuffer(channel.access_token_ciphertext as unknown as string));
+  return { ctx, admin, parsed, token, phoneNumberId: channel.external_id as string };
+}
+
+/** "Test connection" on a WhatsApp channel. */
+export async function checkWhatsAppChannel(_prev: WhatsAppCheckState, formData: FormData): Promise<WhatsAppCheckState> {
+  try {
+    const { token, phoneNumberId } = await loadWhatsAppChannel(formData);
+    return { health: await checkWhatsAppConnection(token, phoneNumberId) };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
+/** One-click fix when the only problem is the missing webhook subscription. */
+export async function subscribeWhatsAppChannel(_prev: WhatsAppCheckState, formData: FormData): Promise<WhatsAppCheckState> {
+  try {
+    const { ctx, admin, parsed, token, phoneNumberId } = await loadWhatsAppChannel(formData);
+    if (ctx.role !== "owner") return { error: "Only owners can change channel settings" };
+    const before = await checkWhatsAppConnection(token, phoneNumberId);
+    if (!before.wabaId) return { health: before, error: "Couldn't find this number's WhatsApp Business Account" };
+    const res = await subscribeWhatsAppWebhooks(token, before.wabaId);
+    await admin.from("audit_logs").insert({
+      org_id: parsed.orgId,
+      user_id: ctx.userId,
+      action: "whatsapp_webhook_subscribed",
+      payload: { channel_id: parsed.channelId, ok: res.ok, error: res.error ?? null },
+    });
+    const after = await checkWhatsAppConnection(token, phoneNumberId);
+    return res.ok
+      ? { health: after, message: "Subscribed. New WhatsApp messages will now reach the inbox." }
+      : { health: after, error: `Meta refused the subscription: ${res.error}` };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
 }
 
 const DisconnectSchema = z.object({
