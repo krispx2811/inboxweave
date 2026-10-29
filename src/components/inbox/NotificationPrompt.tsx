@@ -1,34 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { IconBell } from "@/components/icons";
 
-export function NotificationPrompt() {
-  const [show, setShow] = useState(false);
+// Permission only changes through requestPermission below, so there's nothing to subscribe to.
+const noSubscribe = () => () => {};
+const canAsk = () => "Notification" in window && Notification.permission === "default";
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (Notification.permission === "default") {
-      setShow(true);
-    }
-  }, []);
+export function NotificationPrompt() {
+  const askable = useSyncExternalStore(noSubscribe, canAsk, () => false);
+  const [dismissed, setDismissed] = useState(false);
 
   async function requestPermission() {
     const perm = await Notification.requestPermission();
-    setShow(false);
+    setDismissed(true);
     if (perm === "granted") {
       new Notification("InboxWeave", { body: "You'll be notified of new messages." });
     }
   }
 
-  if (!show) return null;
+  if (!askable || dismissed) return null;
 
   return (
-    <div className="mx-4 mb-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700 flex items-center gap-2">
-      <IconBell className="h-4 w-4 shrink-0" />
-      <span className="flex-1">Enable notifications to get alerted when new messages arrive.</span>
-      <button onClick={requestPermission} className="font-semibold hover:underline">Enable</button>
-      <button onClick={() => setShow(false)} className="text-indigo-400 hover:text-indigo-600">&times;</button>
+    <div className="mx-4 my-2 flex shrink-0 items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+      <span aria-hidden="true" className="inline-flex shrink-0">
+        <IconBell className="h-4 w-4" />
+      </span>
+      <span className="flex-1">Turn on notifications to hear about new messages while this tab is in the background.</span>
+      <button type="button" onClick={requestPermission} className="rounded font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Turn on</button>
+      <button type="button" aria-label="Dismiss" onClick={() => setDismissed(true)} className="rounded px-1 text-base leading-none text-indigo-600 hover:text-indigo-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">&times;</button>
     </div>
   );
 }
