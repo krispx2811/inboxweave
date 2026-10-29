@@ -25,6 +25,9 @@ export const DEFAULT_MODEL = "gpt-5.4-mini";
 /** Background work on every message: classification, language detection, summaries. */
 export const BACKGROUND_MODEL = "gpt-5.4-nano";
 
+/** Last resort if the newer models are rejected (e.g. not enabled on the key). */
+const LEGACY_FALLBACK = "gpt-4.1-mini";
+
 export const CHAT_MODELS: ChatModel[] = [
   { id: "gpt-5.5", label: "GPT-5.5 (most capable)", pricing: { prompt: 5.0, completion: 30.0 } },
   { id: "gpt-5.4-mini", label: "GPT-5.4 Mini (fast, recommended)", pricing: { prompt: 0.75, completion: 4.5 } },
@@ -39,12 +42,27 @@ export const CHAT_MODELS: ChatModel[] = [
   { id: "gpt-4o", label: "GPT-4o", pricing: { prompt: 5.0, completion: 15.0 }, retiring: true },
   { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", pricing: { prompt: 0.4, completion: 1.6 }, retiring: true },
   { id: "gpt-4.1", label: "GPT-4.1", pricing: { prompt: 2.0, completion: 8.0 }, retiring: true },
-  { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", pricing: { prompt: 0.1, completion: 0.4 }, retiring: true },
 ];
+
+/** Shut down by OpenAI; still priced so old usage rows keep their cost. */
+const RETIRED_PRICING: Record<string, ChatModel["pricing"]> = {
+  "gpt-4.1-nano": { prompt: 0.1, completion: 0.4 },
+};
+
+/**
+ * Models to try, in order, for an org configured with `model`. A model that
+ * OpenAI has shut down (or that the org's key can't use) must not silence the
+ * AI, so a rejected request moves on to the current default and then to a
+ * long-lived legacy model.
+ */
+export function modelFallbackChain(model: string): string[] {
+  return [...new Set([model, DEFAULT_MODEL, LEGACY_FALLBACK])];
+}
 
 export function modelPricing(model: string): ChatModel["pricing"] {
   return (
     CHAT_MODELS.find((m) => m.id === model)?.pricing ??
+    RETIRED_PRICING[model] ??
     CHAT_MODELS.find((m) => m.id === DEFAULT_MODEL)!.pricing
   );
 }

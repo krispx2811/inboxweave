@@ -5,6 +5,7 @@ import {
   CHAT_MODELS,
   DEFAULT_MODEL,
   chatRequestBody,
+  modelFallbackChain,
   modelPricing,
   supportsVision,
 } from "../src/lib/ai/models.ts";
@@ -47,4 +48,13 @@ test("defaults are current models, not ones being retired", () => {
     assert.ok(model, id);
     assert.equal(model.retiring, undefined);
   }
+});
+
+test("a retired model falls back to current ones", () => {
+  const chain = modelFallbackChain("gpt-4.1-nano");
+  assert.equal(chain[0], "gpt-4.1-nano");
+  assert.equal(chain[1], DEFAULT_MODEL);
+  assert.equal(new Set(chain).size, chain.length);
+  assert.deepEqual(modelFallbackChain(DEFAULT_MODEL)[0], DEFAULT_MODEL);
+  assert.equal(CHAT_MODELS.some((m) => m.id === "gpt-4.1-nano"), false);
 });

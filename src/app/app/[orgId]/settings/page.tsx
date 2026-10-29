@@ -66,7 +66,10 @@ export default async function SettingsPage({
           </div>
           <div className="max-w-[300px]">
             <label className="label" htmlFor="model">Model</label>
-            <select id="model" name="model" className="input" defaultValue={settings?.model ?? DEFAULT_MODEL}>
+            <select id="model" name="model" className="input" defaultValue={
+                CHAT_MODELS.some((m) => m.id === settings?.model) ? settings!.model : DEFAULT_MODEL
+              }
+            >
               {CHAT_MODELS.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}

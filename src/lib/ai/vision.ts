@@ -1,10 +1,10 @@
 import "server-only";
-import { DEFAULT_MODEL, chatRequestBody, supportsVision } from "./models";
-import { getOpenAIKeyForOrg, getAiSettings } from "./openai";
+import { DEFAULT_MODEL, supportsVision } from "./models";
+import { chatCompletion, getOpenAIKeyForOrg, getAiSettings } from "./openai";
 
 /**
  * Analyze an image with the org's chosen model (all offered models accept images).
- * Uses raw fetch (no SDK) to avoid stray OPENAI_* env vars on the host.
+ * Goes through chatCompletion, so a rejected model falls back like replies do.
  */
 export async function describeImage(params: {
   orgId: string;
@@ -22,27 +22,18 @@ export async function describeImage(params: {
     content.push({ type: "text", text: `Customer's message: ${params.contextHint}` });
   }
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(chatRequestBody({
-      model: visionModel,
-      max_tokens: 300,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a customer support assistant. A customer sent an image. Describe what you see concisely. If it appears to be a screenshot of an error, product issue, or receipt, extract the relevant details.",
-        },
-        { role: "user", content },
-      ],
-    })),
+  const json = await chatCompletion({
+    apiKey,
+    model: visionModel,
+    max_tokens: 300,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a customer support assistant. A customer sent an image. Describe what you see concisely. If it appears to be a screenshot of an error, product issue, or receipt, extract the relevant details.",
+      },
+      { role: "user", content },
+    ],
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`OpenAI vision ${res.status}: ${text.slice(0, 200)}`);
-  const json = JSON.parse(text) as { choices: Array<{ message?: { content?: string } }> };
   return json.choices[0]?.message?.content?.trim() ?? "[Could not analyze image]";
 }
