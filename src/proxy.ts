@@ -37,7 +37,9 @@ export async function proxy(request: NextRequest) {
   // Refresh auth cookies so Server Components can read a fresh session.
   // Logged-out visitors have nothing to refresh, so skip the Auth round trip.
   const hasSession = request.cookies.getAll().some((c) => c.name.startsWith("sb-"));
-  if (hasSession) await supabase.auth.getUser();
+  // getClaims() refreshes an expired token and otherwise verifies it locally
+  // (asymmetric signing keys), so most requests make no Auth round trip.
+  if (hasSession) await supabase.auth.getClaims();
 
   return response;
 }

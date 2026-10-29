@@ -4,14 +4,21 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-// Memoised per request: the org layout and its page both guard, and each
-// getUser() is a network round trip to Supabase Auth.
-export const getSessionUser = cache(async () => {
+export interface SessionUser {
+  id: string;
+  email?: string;
+}
+
+// getClaims() verifies the session JWT's signature locally against the
+// project's cached public keys (asymmetric signing keys), so a page no longer
+// pays a round trip to Supabase Auth on every view. Memoised per request: the
+// org layout and its page both guard.
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+  const { data, error } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (error || !claims?.sub) return null;
+  return { id: claims.sub, email: typeof claims.email === "string" ? claims.email : undefined };
 });
 
 export async function requireUser() {
