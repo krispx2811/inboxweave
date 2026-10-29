@@ -11,8 +11,10 @@ export async function describeImage(params: {
   imageUrl: string;
   contextHint?: string;
 }): Promise<string> {
-  const apiKey = await getOpenAIKeyForOrg(params.orgId);
-  const settings = await getAiSettings(params.orgId);
+  const [apiKey, settings] = await Promise.all([
+    getOpenAIKeyForOrg(params.orgId),
+    getAiSettings(params.orgId),
+  ]);
   const visionModel = supportsVision(settings.model) ? settings.model : DEFAULT_MODEL;
 
   const content: Array<Record<string, unknown>> = [

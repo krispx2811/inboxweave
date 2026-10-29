@@ -12,6 +12,18 @@ import { redactUnsupportedAmounts, supportedAmounts } from "./price-guard";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
+// One inbound message makes several OpenAI calls (language, sentiment,
+// classification, translation, embedding, reply), and each used to re-read and
+// decrypt the key. Cache it per warm function instance; a re-saved key takes
+// effect within the TTL, and a 401 evicts it immediately.
+const KEY_TTL_MS = 5 * 60_000;
+const keyCache = new Map<string, { key: string; expires: number }>();
+
+// Models OpenAI rejected recently on this instance, so each reply doesn't pay
+// for a failed attempt before falling back.
+const REJECTED_TTL_MS = 10 * 60_000;
+const rejectedModels = new Map<string, number>();
+
 /**
  * Fetch + decrypt the OpenAI key for a specific org.
  * We use raw fetch (not the OpenAI SDK) to avoid accidentally inheriting
@@ -19,6 +31,8 @@ const OPENAI_BASE = "https://api.openai.com/v1";
  * would cause 401s on project-scoped (sk-proj-*) keys.
  */
 export async function getOpenAIKeyForOrg(orgId: string): Promise<string> {
+  const cached = keyCache.get(orgId);
+  if (cached && cached.expires > Date.now()) return cached.key;
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from("org_secrets")
@@ -38,6 +52,7 @@ export async function getOpenAIKeyForOrg(orgId: string): Promise<string> {
   if (!apiKey.startsWith("sk-")) {
     throw new Error(`decrypted key invalid — re-save the OpenAI key in Settings`);
   }
+  keyCache.set(orgId, { key: apiKey, expires: Date.now() + KEY_TTL_MS });
   return apiKey;
 }
 
@@ -95,6 +110,21 @@ export interface ChatTurn {
 }
 
 
+/**
+ * True when OpenAI refused the model itself (shut down, not on this key) or a
+ * parameter we send for it, as opposed to a problem with this one request
+ * such as a bad image URL or an over-long prompt.
+ */
+function isModelRejection(status: number, body: string): boolean {
+  if (status === 404) return true;
+  try {
+    const code = (JSON.parse(body) as { error?: { code?: string } }).error?.code;
+    return code === "model_not_found" || code === "unsupported_parameter" || code === "unsupported_value";
+  } catch {
+    return false;
+  }
+}
+
 interface ChatCompletionResult {
   choices: Array<{ message?: { content?: string } }>;
   usage?: { prompt_tokens: number; completion_tokens: number };
@@ -115,7 +145,11 @@ export async function chatCompletion(params: {
   max_tokens?: number;
   messages: Array<{ role: string; content: unknown }>;
 }): Promise<ChatCompletionResult> {
-  const chain = modelFallbackChain(params.model);
+  const now = Date.now();
+  const fullChain = modelFallbackChain(params.model);
+  const healthy = fullChain.filter((m) => (rejectedModels.get(m) ?? 0) < now);
+  // Never skip everything: if all were rejected recently, try them all again.
+  const chain = healthy.length > 0 ? healthy : fullChain;
   for (const [i, model] of chain.entries()) {
     const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
       method: "POST",
@@ -127,7 +161,13 @@ export async function chatCompletion(params: {
     });
     const text = await res.text();
     if (res.ok) return { ...(JSON.parse(text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
+    if (res.status === 401) {
+      for (const [orgId, entry] of keyCache) if (entry.key === params.apiKey) keyCache.delete(orgId);
+    }
     const retryable = res.status === 400 || res.status === 404;
+    if (retryable && isModelRejection(res.status, text)) {
+      rejectedModels.set(model, Date.now() + REJECTED_TTL_MS);
+    }
     if (!retryable || i === chain.length - 1) {
       throw new Error(`OpenAI chat ${res.status} (${model}): ${text.slice(0, 300)}`);
     }
@@ -172,8 +212,10 @@ export async function generateReply(params: {
   priorSummary?: string;
   replyInLanguage?: string;
 }): Promise<string> {
-  const apiKey = await getOpenAIKeyForOrg(params.orgId);
-  const settings = await getAiSettings(params.orgId);
+  const [apiKey, settings] = await Promise.all([
+    getOpenAIKeyForOrg(params.orgId),
+    getAiSettings(params.orgId),
+  ]);
 
   // Amounts the knowledge base currently supports. With no retrieved context
   // there is nothing to check against, so redaction is skipped entirely rather
