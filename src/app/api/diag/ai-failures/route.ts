@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { embedText, rawChatCompletion } from "@/lib/ai/openai";
+import { chatCompletion, embedText, getAiSettings, getOpenAIKeyForOrg } from "@/lib/ai/openai";
 import { retrieveContext } from "@/lib/ai/rag";
 
 export const runtime = "nodejs";
@@ -94,14 +94,22 @@ export async function GET() {
     }
     try {
       const t0 = Date.now();
-      const out = await rawChatCompletion({
-        orgId,
+      // Test the org's own reply model, and report a fallback rather than hide it.
+      const [apiKey, settings] = await Promise.all([getOpenAIKeyForOrg(orgId), getAiSettings(orgId)]);
+      const out = await chatCompletion({
+        apiKey,
+        model: settings.model,
         max_tokens: 20,
         messages: [{ role: "user", content: "say 'ok'" }],
-        // A diagnostic must report a rejected model, not hide it behind a fallback.
-        fallback: false,
       });
-      test.generate = { ok: true, reply: out.slice(0, 50), ms: Date.now() - t0 };
+      test.generate = {
+        ok: true,
+        model: settings.model,
+        answered_by: out.usedModel,
+        degraded: out.usedModel !== settings.model,
+        reply: (out.choices[0]?.message?.content ?? "").slice(0, 50),
+        ms: Date.now() - t0,
+      };
     } catch (err) {
       test.generate = { ok: false, error: (err as Error).message };
     }

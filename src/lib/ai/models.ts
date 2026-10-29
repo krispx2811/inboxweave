@@ -90,55 +90,63 @@ function lowestReasoningEffort(model: string): string | undefined {
 
 /**
  * GPT-5.1+ with reasoning off accepts `temperature`; it matters here because
- * orgs default to 0 to stop invented prices and phone numbers. Pass
- * `omitTemperature` for a model that has refused it.
+ * orgs default to 0 to stop invented prices and phone numbers. `omit` lists
+ * parameters a model has refused, which are left out of the request.
  */
 export function chatRequestBody(params: {
   model: string;
   temperature?: number;
   max_tokens?: number;
   messages: unknown[];
-  omitTemperature?: boolean;
+  omit?: ReadonlySet<string>;
 }): Record<string, unknown> {
-  if (!isReasoningModel(params.model)) {
-    return {
-      model: params.model,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-      messages: params.messages,
-    };
-  }
   const effort = lowestReasoningEffort(params.model);
-  return {
-    model: params.model,
-    reasoning_effort: effort,
-    temperature: effort === "none" && !params.omitTemperature ? params.temperature : undefined,
-    max_completion_tokens: params.max_tokens,
-    messages: params.messages,
-  };
+  const body: Record<string, unknown> = isReasoningModel(params.model)
+    ? {
+        model: params.model,
+        reasoning_effort: effort,
+        temperature: effort === "none" ? params.temperature : undefined,
+        max_completion_tokens: params.max_tokens,
+        messages: params.messages,
+      }
+    : {
+        model: params.model,
+        temperature: params.temperature,
+        max_tokens: params.max_tokens,
+        messages: params.messages,
+      };
+  for (const param of params.omit ?? []) delete body[param];
+  return body;
 }
 
-function openAIError(body: string): { code?: string; param?: string } {
+// Settings we add for tuning, which a model may refuse without the request
+// being wrong; never model or messages.
+const OPTIONAL_PARAMS = new Set(["temperature", "reasoning_effort", "max_tokens", "max_completion_tokens"]);
+
+export type OpenAIErrorKind =
+  /** The model refused one of our tuning parameters: drop it, same model. */
+  | { kind: "param"; param: string }
+  /** The model itself is gone or not on this key: try the next model. */
+  | { kind: "model" }
+  /** Anything else (bad image URL, prompt too long, rate limit, outage). */
+  | { kind: "request" };
+
+export function classifyOpenAIError(status: number, body: string): OpenAIErrorKind {
+  if (status === 404) return { kind: "model" };
+  if (status !== 400) return { kind: "request" };
+  let error: { code?: string; param?: string } = {};
   try {
-    return (JSON.parse(body) as { error?: { code?: string; param?: string } }).error ?? {};
+    error = (JSON.parse(body) as { error?: typeof error }).error ?? {};
   } catch {
-    return {};
+    return { kind: "request" };
   }
-}
-
-/**
- * True when OpenAI refused the model itself (shut down, not on this key) or a
- * parameter we send for it, as opposed to a problem with this one request
- * such as a bad image URL or an over-long prompt.
- */
-export function isModelRejection(status: number, body: string): boolean {
-  if (status === 404) return true;
-  if (status !== 400) return false;
-  const { code } = openAIError(body);
-  return code === "model_not_found" || code === "unsupported_parameter" || code === "unsupported_value";
-}
-
-/** The model accepts the request, just not a `temperature` setting. */
-export function isTemperatureRejection(status: number, body: string): boolean {
-  return status === 400 && openAIError(body).param === "temperature";
+  if (error.code === "model_not_found") return { kind: "model" };
+  if (
+    (error.code === "unsupported_parameter" || error.code === "unsupported_value") &&
+    error.param &&
+    OPTIONAL_PARAMS.has(error.param)
+  ) {
+    return { kind: "param", param: error.param };
+  }
+  return { kind: "request" };
 }

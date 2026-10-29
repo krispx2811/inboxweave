@@ -5,8 +5,7 @@ import {
   CHAT_MODELS,
   DEFAULT_MODEL,
   chatRequestBody,
-  isModelRejection,
-  isTemperatureRejection,
+  classifyOpenAIError,
   modelFallbackChain,
   modelPricing,
   supportsVision,
@@ -64,20 +63,28 @@ test("a retired model falls back to current ones", () => {
 test("GPT-5.1+ keeps temperature unless the model refused it", () => {
   const body = chatRequestBody({ model: "gpt-5.4-mini", temperature: 0, messages });
   assert.equal(body.temperature, 0);
-  const omitted = chatRequestBody({ model: "gpt-5.4-mini", temperature: 0, messages, omitTemperature: true });
-  assert.equal(omitted.temperature, undefined);
+  const omitted = chatRequestBody({ model: "gpt-5.4-mini", temperature: 0, messages, omit: new Set(["temperature"]) });
+  assert.equal("temperature" in omitted, false);
+  assert.equal(omitted.reasoning_effort, "none");
   assert.equal(chatRequestBody({ model: "gpt-5-mini", temperature: 0, messages }).temperature, undefined);
 });
 
-test("only model-level errors count as a model rejection", () => {
+test("OpenAI errors are classified by what to do next", () => {
   const err = (code: string, param?: string) => JSON.stringify({ error: { code, param } });
-  assert.equal(isModelRejection(404, ""), true);
-  assert.equal(isModelRejection(400, err("model_not_found")), true);
-  assert.equal(isModelRejection(400, err("unsupported_parameter", "reasoning_effort")), true);
-  assert.equal(isModelRejection(400, err("invalid_image_url")), false);
-  assert.equal(isModelRejection(400, err("context_length_exceeded")), false);
-  assert.equal(isModelRejection(429, err("rate_limit_exceeded")), false);
-  assert.equal(isModelRejection(400, "not json"), false);
-  assert.equal(isTemperatureRejection(400, err("unsupported_value", "temperature")), true);
-  assert.equal(isTemperatureRejection(400, err("unsupported_value", "reasoning_effort")), false);
+  assert.deepEqual(classifyOpenAIError(404, ""), { kind: "model" });
+  assert.deepEqual(classifyOpenAIError(400, err("model_not_found")), { kind: "model" });
+  assert.deepEqual(classifyOpenAIError(400, err("unsupported_parameter", "reasoning_effort")), {
+    kind: "param",
+    param: "reasoning_effort",
+  });
+  assert.deepEqual(classifyOpenAIError(400, err("unsupported_value", "temperature")), {
+    kind: "param",
+    param: "temperature",
+  });
+  // A refused parameter we don't control is a request problem, never dropped.
+  assert.deepEqual(classifyOpenAIError(400, err("unsupported_value", "messages")), { kind: "request" });
+  assert.deepEqual(classifyOpenAIError(400, err("invalid_image_url")), { kind: "request" });
+  assert.deepEqual(classifyOpenAIError(400, err("context_length_exceeded")), { kind: "request" });
+  assert.deepEqual(classifyOpenAIError(429, err("rate_limit_exceeded")), { kind: "request" });
+  assert.deepEqual(classifyOpenAIError(400, "not json"), { kind: "request" });
 });

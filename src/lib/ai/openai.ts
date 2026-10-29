@@ -1,13 +1,11 @@
 import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createHash } from "node:crypto";
 import {
   BACKGROUND_MODEL,
   DEFAULT_MODEL,
   chatRequestBody,
-  isModelRejection,
-  isTemperatureRejection,
+  classifyOpenAIError,
   modelFallbackChain,
   modelPricing,
 } from "./models";
@@ -27,16 +25,21 @@ export function forgetOpenAIKey(orgId: string): void {
   keyCache.delete(orgId);
 }
 
-// Models OpenAI rejected recently, per API key (one org's key lacking a model
-// says nothing about another's), so each reply doesn't pay for a failed
-// attempt before falling back.
+// Models OpenAI rejected recently, keyed by API key + model (one org's key
+// lacking a model says nothing about another's), so each reply doesn't pay
+// for a failed attempt before falling back. Expired entries are removed on read.
 const REJECTED_TTL_MS = 10 * 60_000;
 const rejectedModels = new Map<string, number>();
-// Models that refused `temperature`; they're sent without it from then on.
-const noTemperatureModels = new Set<string>();
+// Tuning parameters each model has refused; left out of its requests from then on.
+const refusedParams = new Map<string, Set<string>>();
 
-function keyId(apiKey: string): string {
-  return createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
+function recentlyRejected(apiKey: string, model: string, now: number): boolean {
+  const key = `${apiKey}:${model}`;
+  const until = rejectedModels.get(key);
+  if (until === undefined) return false;
+  if (until > now) return true;
+  rejectedModels.delete(key);
+  return false;
 }
 
 /**
@@ -104,23 +107,17 @@ export async function getAiSettings(orgId: string): Promise<AiSettings> {
  */
 export async function isOrgAiEnabled(orgId: string): Promise<boolean> {
   const admin = createSupabaseAdminClient();
+  // select("*") rather than naming the column: before migration 0017 the
+  // column simply isn't in the row (reads as on) instead of failing the query.
+  // Real errors still throw, so the kill switch stays authoritative.
   const { data, error } = await admin
     .from("ai_settings")
-    .select("ai_enabled")
+    .select("*")
     .eq("org_id", orgId)
     .maybeSingle();
-  if (error) {
-    // A missing column means migration 0017 isn't applied, so no owner can
-    // have switched the AI off: treat as on rather than silencing every reply.
-    // Any other error keeps the kill switch authoritative.
-    if (error.code === "42703") {
-      console.error(`[ai] ai_settings.ai_enabled missing (apply migration 0017): ${error.message}`);
-      return true;
-    }
-    throw new Error(error.message);
-  }
-  // Treat a missing row or a null column as "on".
-  return data?.ai_enabled !== false;
+  if (error) throw new Error(error.message);
+  // Treat a missing row or a null/missing column as "on".
+  return (data as { ai_enabled?: boolean | null } | null)?.ai_enabled !== false;
 }
 
 export interface ChatTurn {
@@ -136,25 +133,44 @@ interface ChatCompletionResult {
   usedModel: string;
 }
 
-async function postChat(apiKey: string, body: Record<string, unknown>) {
-  const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, ok: res.ok, text: await res.text() };
+/**
+ * One model's attempt. A tuning parameter the model refuses is dropped, and
+ * the same model retried, at most once per such parameter.
+ */
+async function postChat(params: {
+  apiKey: string;
+  model: string;
+  temperature?: number;
+  max_tokens?: number;
+  messages: unknown[];
+}) {
+  const refused = refusedParams.get(params.model) ?? new Set<string>();
+  for (;;) {
+    const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(chatRequestBody({ ...params, omit: refused })),
+    });
+    const text = await res.text();
+    const error = res.ok ? null : classifyOpenAIError(res.status, text);
+    if (error?.kind === "param" && !refused.has(error.param)) {
+      refused.add(error.param);
+      refusedParams.set(params.model, refused);
+      continue;
+    }
+    return { status: res.status, text, error };
+  }
 }
 
 /**
  * Low-level chat completion via direct fetch (no SDK).
- * Only a rejection of the model itself (shut down, not on this key, or a
- * parameter it doesn't take) moves on to the next model in the fallback
- * chain; a problem with the request (bad image URL, prompt too long) or any
- * other failure throws with the error body. `fallback: false` tries only the
- * given model, for diagnostics that must surface the real failure.
+ * Only a rejection of the model itself (shut down, not on this key) moves on
+ * to the next model in the fallback chain; `usedModel` says which answered.
+ * A problem with the request (bad image URL, prompt too long) or any other
+ * failure throws with the error body.
  */
 export async function chatCompletion(params: {
   apiKey: string;
@@ -162,35 +178,27 @@ export async function chatCompletion(params: {
   temperature?: number;
   max_tokens?: number;
   messages: Array<{ role: string; content: unknown }>;
-  fallback?: boolean;
 }): Promise<ChatCompletionResult> {
   const now = Date.now();
-  const kid = keyId(params.apiKey);
-  const fullChain = params.fallback === false ? [params.model] : modelFallbackChain(params.model);
-  const healthy = fullChain.filter((m) => (rejectedModels.get(`${kid}:${m}`) ?? 0) < now);
+  const fullChain = modelFallbackChain(params.model);
+  const healthy = fullChain.filter((m) => !recentlyRejected(params.apiKey, m, now));
   // Never skip everything: if all were rejected recently, try them all again.
   const chain = healthy.length > 0 ? healthy : fullChain;
-  for (const [i, model] of chain.entries()) {
-    const omitTemperature = noTemperatureModels.has(model);
-    let res = await postChat(params.apiKey, chatRequestBody({ ...params, model, omitTemperature }));
-    if (!omitTemperature && isTemperatureRejection(res.status, res.text)) {
-      noTemperatureModels.add(model);
-      res = await postChat(params.apiKey, chatRequestBody({ ...params, model, omitTemperature: true }));
-    }
-    if (res.ok) {
+  let lastError: Error | undefined;
+  for (const model of chain) {
+    const res = await postChat({ ...params, model });
+    if (!res.error) {
       return { ...(JSON.parse(res.text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
     }
     if (res.status === 401) {
       for (const [orgId, entry] of keyCache) if (entry.key === params.apiKey) keyCache.delete(orgId);
     }
-    const modelRejected = isModelRejection(res.status, res.text);
-    if (modelRejected) rejectedModels.set(`${kid}:${model}`, Date.now() + REJECTED_TTL_MS);
-    if (!modelRejected || i === chain.length - 1) {
-      throw new Error(`OpenAI chat ${res.status} (${model}): ${res.text.slice(0, 300)}`);
-    }
-    console.warn(`[ai] ${model} rejected (${res.status}), falling back: ${res.text.slice(0, 200)}`);
+    lastError = new Error(`OpenAI chat ${res.status} (${model}): ${res.text.slice(0, 300)}`);
+    if (res.error.kind !== "model") throw lastError;
+    rejectedModels.set(`${params.apiKey}:${model}`, Date.now() + REJECTED_TTL_MS);
+    console.warn(`[ai] ${model} rejected (${res.status}): ${res.text.slice(0, 200)}`);
   }
-  throw new Error("unreachable");
+  throw lastError!;
 }
 
 async function logUsage(params: {
@@ -396,7 +404,6 @@ export async function rawChatCompletion(params: {
   temperature?: number;
   max_tokens?: number;
   messages: Array<{ role: string; content: string }>;
-  fallback?: boolean;
 }): Promise<string> {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const result = await chatCompletion({
@@ -405,7 +412,6 @@ export async function rawChatCompletion(params: {
     temperature: params.temperature,
     max_tokens: params.max_tokens,
     messages: params.messages,
-    fallback: params.fallback,
   });
   return result.choices[0]?.message?.content?.trim() ?? "";
 }
