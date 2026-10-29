@@ -267,7 +267,7 @@ export default function GuidesPage() {
             <Step n={4}>In InboxWeave &rarr; <strong>Settings</strong> &rarr; paste into the OpenAI API key field &rarr; Save. It&apos;s encrypted immediately.</Step>
 
             <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
-              <strong>Cost:</strong> GPT-4o-mini is ~$0.15 per 1M input tokens. Typical small business: $1-5/month. Track usage in your Dashboard.
+              <strong>Cost:</strong> OpenAI bills AI usage to your own key, so it depends on your message volume and the model you pick (GPT-5.4 Nano is the cheapest). Track it on the Usage page.
             </div>
           </div>
         </section>

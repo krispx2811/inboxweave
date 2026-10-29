@@ -45,8 +45,15 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets, public files and webhook routes (webhooks have their own auth).
+  // Only routes that read the session need their cookies refreshed. Running
+  // the proxy elsewhere cost ~0.5s per request (with cold-start spikes) on
+  // public pages that have no session. Webhooks, cron and health have their
+  // own auth or none; login/signup set cookies in the browser.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.svg|manifest.json|sw.js|robots.txt|sitemap.xml|api/webhooks).*)",
+    "/app/:path*",
+    "/home",
+    "/onboarding",
+    "/admin/:path*",
+    "/api/((?!webhooks|cron|health).*)",
   ],
 };
