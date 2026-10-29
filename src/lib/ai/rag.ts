@@ -17,7 +17,6 @@ async function expandCrossLingualQuery(orgId: string, query: string): Promise<st
   try {
     const translated = await rawChatCompletion({
       orgId,
-      model: "gpt-4o-mini",
       temperature: 0,
       max_tokens: 200,
       messages: [

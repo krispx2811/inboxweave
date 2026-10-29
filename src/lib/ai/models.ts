@@ -19,12 +19,19 @@ export interface ChatModel {
   retiring?: boolean;
 }
 
-export const DEFAULT_MODEL = "gpt-4o-mini";
+/** Customer replies, for orgs that haven't picked a model. */
+export const DEFAULT_MODEL = "gpt-5.4-mini";
+
+/** Background work on every message: classification, language detection, summaries. */
+export const BACKGROUND_MODEL = "gpt-5.4-nano";
 
 export const CHAT_MODELS: ChatModel[] = [
   { id: "gpt-5.5", label: "GPT-5.5 (most capable)", pricing: { prompt: 5.0, completion: 30.0 } },
   { id: "gpt-5.4-mini", label: "GPT-5.4 Mini (fast, recommended)", pricing: { prompt: 0.75, completion: 4.5 } },
   { id: "gpt-5.4-nano", label: "GPT-5.4 Nano (cheapest new model)", pricing: { prompt: 0.2, completion: 1.25 } },
+  { id: "gpt-5.4", label: "GPT-5.4", pricing: { prompt: 2.5, completion: 15.0 } },
+  { id: "gpt-5.2", label: "GPT-5.2", pricing: { prompt: 1.75, completion: 14.0 } },
+  { id: "gpt-5.1", label: "GPT-5.1", pricing: { prompt: 1.25, completion: 10.0 } },
   { id: "gpt-5", label: "GPT-5", pricing: { prompt: 1.25, completion: 10.0 } },
   { id: "gpt-5-mini", label: "GPT-5 Mini", pricing: { prompt: 0.25, completion: 2.0 } },
   { id: "gpt-5-nano", label: "GPT-5 Nano", pricing: { prompt: 0.05, completion: 0.4 } },

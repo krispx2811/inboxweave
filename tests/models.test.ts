@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chatRequestBody, modelPricing, supportsVision } from "../src/lib/ai/models.ts";
+import {
+  BACKGROUND_MODEL,
+  CHAT_MODELS,
+  DEFAULT_MODEL,
+  chatRequestBody,
+  modelPricing,
+  supportsVision,
+} from "../src/lib/ai/models.ts";
 
 const messages = [{ role: "user", content: "hi" }];
 
@@ -25,11 +32,19 @@ test("GPT-5.x models turn reasoning off", () => {
 });
 
 test("unknown models fall back to default pricing", () => {
-  assert.deepEqual(modelPricing("nope"), modelPricing("gpt-4o-mini"));
+  assert.deepEqual(modelPricing("nope"), modelPricing(DEFAULT_MODEL));
   assert.equal(modelPricing("gpt-5.5").completion, 30);
 });
 
 test("new models are used for vision", () => {
   assert.equal(supportsVision("gpt-5.4-mini"), true);
   assert.equal(supportsVision("nope"), false);
+});
+
+test("defaults are current models, not ones being retired", () => {
+  for (const id of [DEFAULT_MODEL, BACKGROUND_MODEL]) {
+    const model = CHAT_MODELS.find((m) => m.id === id);
+    assert.ok(model, id);
+    assert.equal(model.retiring, undefined);
+  }
 });

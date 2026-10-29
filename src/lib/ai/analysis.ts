@@ -11,7 +11,6 @@ export interface SentimentResult {
 export async function analyzeSentiment(orgId: string, text: string): Promise<SentimentResult> {
   const raw = await rawChatCompletion({
     orgId,
-    model: "gpt-4o-mini",
     temperature: 0,
     max_tokens: 60,
     messages: [
@@ -53,7 +52,6 @@ export async function generateSummary(orgId: string, conversationId: string): Pr
 
   return rawChatCompletion({
     orgId,
-    model: "gpt-4o-mini",
     temperature: 0.2,
     max_tokens: 200,
     messages: [
@@ -91,7 +89,6 @@ export async function generateSuggestedReplies(
 
   const raw = await rawChatCompletion({
     orgId,
-    model: "gpt-4o-mini",
     temperature: 0.7,
     max_tokens: 300,
     messages: [

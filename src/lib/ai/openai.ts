@@ -1,7 +1,7 @@
 import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { DEFAULT_MODEL, chatRequestBody, modelPricing } from "./models";
+import { BACKGROUND_MODEL, DEFAULT_MODEL, chatRequestBody, modelPricing } from "./models";
 import { redactUnsupportedAmounts, supportedAmounts } from "./price-guard";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -273,7 +273,7 @@ export async function detectLanguage(orgId: string, text: string): Promise<strin
   const apiKey = await getOpenAIKeyForOrg(orgId);
   const result = await chatCompletion({
     apiKey,
-    model: DEFAULT_MODEL,
+    model: BACKGROUND_MODEL,
     temperature: 0,
     max_tokens: 10,
     messages: [
@@ -320,7 +320,7 @@ export async function rawChatCompletion(params: {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const result = await chatCompletion({
     apiKey,
-    model: params.model ?? DEFAULT_MODEL,
+    model: params.model ?? BACKGROUND_MODEL,
     temperature: params.temperature,
     max_tokens: params.max_tokens,
     messages: params.messages,

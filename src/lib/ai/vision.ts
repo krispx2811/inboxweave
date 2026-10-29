@@ -3,7 +3,7 @@ import { DEFAULT_MODEL, chatRequestBody, supportsVision } from "./models";
 import { getOpenAIKeyForOrg, getAiSettings } from "./openai";
 
 /**
- * Analyze an image using GPT-4o's vision capabilities.
+ * Analyze an image with the org's chosen model (all offered models accept images).
  * Uses raw fetch (no SDK) to avoid stray OPENAI_* env vars on the host.
  */
 export async function describeImage(params: {

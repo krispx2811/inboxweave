@@ -501,7 +501,6 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
       try {
         priorSummary = await rawChatCompletion({
           orgId,
-          model: "gpt-4o-mini",
           temperature: 0,
           max_tokens: 220,
           messages: [

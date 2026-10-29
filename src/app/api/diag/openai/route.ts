@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
+import { BACKGROUND_MODEL, chatRequestBody } from "@/lib/ai/models";
 
 export const runtime = "nodejs";
 
@@ -82,11 +83,11 @@ export async function GET() {
         Authorization: `Bearer ${decrypted}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
+      body: JSON.stringify(chatRequestBody({
+        model: BACKGROUND_MODEL,
         max_tokens: 5,
         messages: [{ role: "user", content: "hi" }],
-      }),
+      })),
     });
     const openaiText = await openaiRes.text();
     result.openai_direct = {
@@ -99,8 +100,8 @@ export async function GET() {
       const { default: OpenAI } = await import("openai");
       const client = new OpenAI({ apiKey: decrypted });
       const sdkRes = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        max_tokens: 5,
+        model: BACKGROUND_MODEL,
+        max_completion_tokens: 5,
         messages: [{ role: "user", content: "hi" }],
       });
       result.openai_sdk = { ok: true, id: sdkRes.id };

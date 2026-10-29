@@ -96,7 +96,6 @@ export async function GET() {
       const t0 = Date.now();
       const out = await rawChatCompletion({
         orgId,
-        model: "gpt-4o-mini",
         max_tokens: 20,
         messages: [{ role: "user", content: "say 'ok'" }],
       });
