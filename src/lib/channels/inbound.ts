@@ -450,31 +450,25 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // Build the unified user message: all IN messages since the last OUT.
   // This way a burst of ["hi", "for lasik", "how much?"] is answered as
   // one coherent reply instead of three disjoint ones.
-  const { data: sinceLastOut } = await admin
+  // Fetch more than 24 so we can detect long threads and summarize the older
+  // portion into a "prior summary" system note — keeps context without blowing
+  // up token count. Newest first; the burst is read off the top of it.
+  const { data: history } = await admin
     .from("messages")
-    .select("direction, content, created_at")
+    .select("direction, sender, content, created_at")
     .eq("conversation_id", convo.id)
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(48);
   const burst: string[] = [];
-  for (const m of sinceLastOut ?? []) {
+  for (const m of (history ?? []).slice(0, 10)) {
     if (m.direction === "out") break;
     if (m.direction === "in" && m.content) burst.unshift(m.content as string);
   }
   const unifiedUserMessage = burst.length > 1 ? burst.join("\n") : msg.text;
 
   try {
-    // Fetch more than 24 so we can detect long threads and summarize the
-    // older portion into a "prior summary" system note — keeps context
-    // without blowing up token count.
-    const { data: history } = await admin
-      .from("messages")
-      .select("direction, sender, content, created_at")
-      .eq("conversation_id", convo.id)
-      .order("created_at", { ascending: false })
-      .limit(48);
-
     const allTurns = (history ?? [])
+      .slice()
       .reverse()
       .slice(0, -1)
       .map((m) => ({
@@ -489,8 +483,10 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     // verbatim and condense everything older into a single synthetic
     // system-role message. Prevents unbounded token growth on 100+
     // message conversations.
+    // The summary is started here but awaited together with retrieval below,
+    // so a long thread doesn't add a whole extra model call to the reply time.
     const KEEP_RECENT = 20;
-    let priorSummary = "";
+    let priorSummaryPromise: Promise<string> = Promise.resolve("");
     let turns = allTurns;
     if (allTurns.length > KEEP_RECENT + 6) {
       const toSummarize = allTurns.slice(0, allTurns.length - KEEP_RECENT);
@@ -498,23 +494,19 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         .map((t) => `${t.role}: ${t.content}`)
         .join("\n")
         .slice(0, 6000);
-      try {
-        priorSummary = await rawChatCompletion({
-          orgId,
-          temperature: 0,
-          max_tokens: 220,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Summarize this partial customer-support conversation in 3-4 sentences. Focus on what the customer wants, what's already been answered, and any unresolved points. Keep it neutral — no analysis, no headers.",
-            },
-            { role: "user", content: transcript },
-          ],
-        });
-      } catch {
-        priorSummary = "";
-      }
+      priorSummaryPromise = rawChatCompletion({
+        orgId,
+        temperature: 0,
+        max_tokens: 220,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Summarize this partial customer-support conversation in 3-4 sentences. Focus on what the customer wants, what's already been answered, and any unresolved points. Keep it neutral — no analysis, no headers.",
+          },
+          { role: "user", content: transcript },
+        ],
+      }).catch(() => "");
       turns = allTurns.slice(-KEEP_RECENT);
     }
 
@@ -542,8 +534,9 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         unifiedUserMessage.trim().length < 25 && turnsWithoutBurst.length > 0
           ? recentText
           : unifiedUserMessage;
-      // Fetch RAG context and past-conversation memory in parallel.
-      const [context, contactMemory] = await Promise.all([
+      // Fetch RAG context, past-conversation memory and the long-thread
+      // summary in parallel.
+      const [context, contactMemory, priorSummary] = await Promise.all([
         retrieveContext(orgId, retrievalQuery).catch(() => [] as string[]),
         getContactMemory(
           orgId,
@@ -552,6 +545,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
           convo.id as string,
           convo.created_at as string | undefined,
         ).catch(() => [] as string[]),
+        priorSummaryPromise,
       ]);
       step = "generateReply";
       reply = await generateReply({
