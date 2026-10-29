@@ -484,6 +484,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
         priorSummary: ctx.priorSummary,
         replyInLanguage: detectedLang ?? undefined,
         settings,
+        offers: ctx.offers,
       });
       if (!reply) return;
       // Defensive: strip any footer the model may have mimicked from prior

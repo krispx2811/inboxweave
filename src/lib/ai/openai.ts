@@ -9,6 +9,7 @@ import {
   modelFallbackChain,
   modelPricing,
 } from "./models";
+import { offerLines, offersBlock, type LiveOffer } from "./offer-format";
 import { redactUnsupportedAmounts, supportedAmounts } from "./price-guard";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -238,22 +239,28 @@ export async function generateReply(params: {
   replyInLanguage?: string;
   /** Already-loaded AI settings, so the caller can fetch them in parallel. */
   settings?: AiSettings;
+  /** Offers running right now; they override the knowledge base. */
+  offers?: LiveOffer[];
 }): Promise<string> {
   const [apiKey, settings] = await Promise.all([
     getOpenAIKeyForOrg(params.orgId),
     params.settings ?? getAiSettings(params.orgId),
   ]);
 
-  // Amounts the knowledge base currently supports. With no retrieved context
-  // there is nothing to check against, so redaction is skipped entirely rather
-  // than blanking every price in the thread.
-  const live = supportedAmounts(params.retrievedContext);
+  // Amounts the knowledge base and the running offers currently support. With
+  // neither there is nothing to check against, so redaction is skipped
+  // entirely rather than blanking every price in the thread. An offer that has
+  // ended is no longer listed, so its price is redacted from old turns too.
+  const offers = params.offers ?? [];
+  const currentSources = [...params.retrievedContext, ...offerLines(offers)];
+  const hasSources = currentSources.length > 0;
+  const live = supportedAmounts(currentSources);
   const redact = (text: string) =>
     live.size > 0 ? redactUnsupportedAmounts(text, live) : text;
 
   // Only the assistant's own turns are cleaned. A customer quoting a price back
   // at us ("you said 490") must survive verbatim, or the model loses the thread.
-  const history = params.retrievedContext.length > 0
+  const history = hasSources
     ? params.history.map((turn) =>
         turn.role === "assistant" ? { ...turn, content: redact(turn.content) } : turn,
       )
@@ -263,11 +270,11 @@ export async function generateReply(params: {
   // words: summaries of earlier conversations, and the rolling summary of this
   // one. Both are generated from transcripts and inherit their stale figures.
   const contactMemory =
-    params.retrievedContext.length > 0
+    hasSources
       ? params.contactMemory?.map(redact)
       : params.contactMemory;
   const priorSummary =
-    params.retrievedContext.length > 0 && params.priorSummary
+    hasSources && params.priorSummary
       ? redact(params.priorSummary)
       : params.priorSummary;
 
@@ -281,11 +288,11 @@ export async function generateReply(params: {
   // earlier replies, and the retrieved knowledge base — so a stale figure (one
   // baked into an org's prompt, or one the assistant quoted earlier in the
   // thread) silently beats a freshly updated knowledge base. Only meaningful
-  // when there IS retrieved context, so it's gated on that below.
+  // when there IS retrieved context or a running offer, so it's gated below.
   const precedence =
     "\n\nSOURCE PRECEDENCE — APPLY BEFORE ANSWERING:\n" +
-    "1. The KNOWLEDGE BASE block is the single source of truth for every price, fee, phone number, date, address, and policy.\n" +
-    "2. It OVERRIDES anything stated earlier in this system prompt, any past-conversation summary, and — critically — anything YOU said earlier in this conversation.\n" +
+    "1. The KNOWLEDGE BASE block is the single source of truth for every price, fee, phone number, date, address, and policy. The one exception is the CURRENT OFFERS block: while an offer is listed there, it wins over the knowledge base for exactly what it covers.\n" +
+    "2. Together they OVERRIDE anything stated earlier in this system prompt, any past-conversation summary, and — critically — anything YOU said earlier in this conversation.\n" +
     "3. If a figure you quoted earlier in this thread disagrees with the knowledge base, the knowledge base is right and your earlier message was wrong. Quote the knowledge base value. Do not repeat or defend the earlier number, and do not draw attention to the change unless the customer asks about it.\n" +
     "4. If the KNOWLEDGE BASE ITSELF gives two different values for the same item, do NOT pick one and do NOT average them. Say the exact figure depends on the specific case and offer to confirm it with the team.\n" +
     "5. Values introduced as illustrations — anything after 'e.g.', 'for example', 'sample', or shown as a placeholder like XX — are formatting demonstrations, NOT real data. Never quote them as facts.";
@@ -339,9 +346,10 @@ export async function generateReply(params: {
           memoryBlock +
           summaryBlock +
           contextBlock +
+          offersBlock(offers) +
           languageInstruction +
           // Last, so it sits closest to the conversation it governs.
-          (params.retrievedContext.length > 0 ? precedence : ""),
+          (hasSources ? precedence : ""),
       },
       ...history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: params.userMessage },
