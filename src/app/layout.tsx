@@ -8,26 +8,25 @@ const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
 
 export const metadata: Metadata = {
   title: {
-    default: "InboxWeave — AI Auto-Replies for WhatsApp, Instagram & Messenger in Oman",
+    default: "InboxWeave — AI Auto-Replies for Instagram DMs in Oman",
     template: "%s | InboxWeave",
   },
   description:
-    "AI that answers your WhatsApp, Instagram and Messenger customers in Arabic and English from your own price list and offers, with a shared team inbox. 30 OMR/month.",
+    "AI that answers your Instagram DMs in Arabic and English from your own price list and offers, with a shared team inbox. 30 OMR/month.",
   keywords: [
     "AI customer support",
-    "WhatsApp business AI",
+    "Instagram business AI",
     "Instagram DM automation",
-    "Facebook Messenger bot",
+    "Instagram auto reply",
     "AI inbox",
     "customer messaging platform",
-    "WhatsApp chatbot Oman",
+    "Instagram chatbot Oman",
     "AI customer service Oman",
-    "WhatsApp auto reply Arabic",
-    "رد آلي واتساب",
-    "شات بوت واتساب عمان",
+    "Instagram DM auto reply Arabic",
+    "رد آلي انستقرام",
+    "شات بوت انستقرام عمان",
     "multi-channel inbox",
     "AI auto reply",
-    "WhatsApp Cloud API",
     "customer support automation",
     "helpdesk software",
     "AI chatbot",
@@ -47,16 +46,16 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: siteUrl,
     siteName: "InboxWeave",
-    title: "InboxWeave — AI Auto-Replies for WhatsApp, Instagram & Messenger",
+    title: "InboxWeave — AI Auto-Replies for Instagram DMs",
     description:
-      "AI that answers your customers on WhatsApp, Instagram and Messenger in Arabic and English, from your own price list and offers. 30 OMR/month, no setup fee.",
+      "AI that answers your customers' Instagram DMs in Arabic and English, from your own price list and offers. 30 OMR/month, no setup fee.",
     // Image comes from app/opengraph-image.tsx.
   },
   twitter: {
     card: "summary_large_image",
-    title: "InboxWeave — AI Auto-Replies for WhatsApp, Instagram & Messenger",
+    title: "InboxWeave — AI Auto-Replies for Instagram DMs",
     description:
-      "AI customer replies in Arabic and English for WhatsApp, Instagram and Messenger. 30 OMR/month, no setup fee.",
+      "AI replies to your Instagram DMs in Arabic and English. 30 OMR/month, no setup fee.",
   },
   robots: {
     index: true,

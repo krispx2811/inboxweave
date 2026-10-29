@@ -41,17 +41,17 @@ export default function LoginPage() {
             Your AI-powered inbox<br />is waiting for you
           </h2>
           <p className="mt-4 text-indigo-200 leading-relaxed max-w-md">
-            Manage WhatsApp, Instagram, Messenger, SMS, and Email conversations
-            with AI that knows your business. Free forever.
+            Answer your Instagram DMs with AI that knows your business,
+            in Arabic and English.
           </p>
 
           {/* Mini mockup */}
           <div className="mt-8 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 p-4">
             <div className="space-y-2.5">
               {[
-                { name: "Sarah M.", msg: "Thanks for the quick help!", platform: "whatsapp", time: "2m" },
+                { name: "Sarah M.", msg: "Thanks for the quick help!", platform: "instagram", time: "2m" },
                 { name: "Ahmed K.", msg: "When does my order arrive?", platform: "instagram", time: "8m" },
-                { name: "Lisa T.", msg: "Can I get a refund?", platform: "messenger", time: "1h" },
+                { name: "Lisa T.", msg: "Can I get a refund?", platform: "instagram", time: "1h" },
               ].map((c, i) => (
                 <div key={i} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 ${i === 0 ? "bg-white/15" : "bg-white/5"}`}>
                   <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">

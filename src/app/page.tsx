@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { IconWhatsApp, IconFacebook, IconInstagram, IconSparkle, IconInbox, IconBolt, IconChart, IconGlobe, IconShield, IconUsers } from "@/components/icons";
+import { IconInstagram, IconSparkle, IconInbox, IconBolt, IconChart, IconGlobe, IconShield, IconUsers } from "@/components/icons";
 import { LogoIcon, LogoFull } from "@/components/Logo";
 import { AdSlot } from "@/components/AdSlot";
 
@@ -18,7 +18,7 @@ const organizationJsonLd = {
   logo: `${SITE}/icon.svg`,
   areaServed: ["Oman", "GCC"],
   description:
-    "InboxWeave is an AI customer messaging platform for businesses in Oman and the GCC. It answers WhatsApp, Instagram and Messenger messages in Arabic and English from the business's own knowledge base.",
+    "InboxWeave is an AI customer messaging platform for businesses in Oman and the GCC. It answers Instagram direct messages in Arabic and English from the business's own knowledge base.",
 };
 
 const jsonLd = {
@@ -43,12 +43,10 @@ const jsonLd = {
     description: "One plan with every feature and support included. No setup fee.",
   },
   description:
-    "AI customer messaging platform for WhatsApp, Instagram and Messenger. AI auto-replies in Arabic and English from your own knowledge base and current offers, with a shared team inbox. 30 OMR per month.",
+    "AI auto-replies for Instagram direct messages. The AI replies in Arabic and English from your own knowledge base and current offers, with a shared team inbox. 30 OMR per month.",
   featureList: [
     "AI auto-replies in Arabic and English",
-    "WhatsApp Business Cloud API",
     "Instagram DM automation",
-    "Facebook Messenger integration",
     "Answers from your own knowledge base (RAG with hybrid search)",
     "Time-limited offers the AI quotes automatically",
     "Hand-off to a human when the customer asks",
@@ -60,11 +58,11 @@ const jsonLd = {
 const FAQ: Array<{ q: string; a: string }> = [
   {
     q: "How much does InboxWeave cost?",
-    a: "InboxWeave costs 30 OMR per month. That one plan includes every feature, all three channels (WhatsApp, Instagram and Messenger), unlimited team members and support. There is no setup fee. AI usage is billed by OpenAI to your own OpenAI API key, so you only pay OpenAI for the messages the AI actually answers.",
+    a: "InboxWeave costs 30 OMR per month. That one plan includes every feature, Instagram direct messages, unlimited team members and support. There is no setup fee. AI usage is billed by OpenAI to your own OpenAI API key, so you only pay OpenAI for the messages the AI actually answers.",
   },
   {
     q: "Which messaging channels does InboxWeave support?",
-    a: "InboxWeave connects WhatsApp (through the official WhatsApp Business Cloud API), Instagram direct messages and Facebook Messenger. Messages from all three arrive in one shared inbox.",
+    a: "InboxWeave answers Instagram direct messages. You connect your Instagram business account, and every DM arrives in one shared inbox where the AI replies and your team can step in.",
   },
   {
     q: "Does the AI reply in Arabic?",
@@ -128,19 +126,17 @@ export default function Home() {
         <h1 className="text-5xl font-extrabold tracking-tight text-slate-900 sm:text-6xl leading-[1.1]">
           AI auto-replies for<br />
           <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 bg-clip-text text-transparent">
-            WhatsApp, Instagram &amp; Messenger
+            your Instagram DMs
           </span>
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-500 leading-relaxed">
-          InboxWeave answers your customers on WhatsApp, Instagram and Messenger in Arabic and English,
+          InboxWeave answers your customers&apos; Instagram DMs in Arabic and English,
           using your own price list, policies and current offers, and hands off to your team when it matters.
         </p>
 
         <div className="mt-6 flex items-center justify-center gap-5">
-          <IconWhatsApp className="h-7 w-7 text-emerald-500 opacity-80" />
           <IconInstagram className="h-7 w-7 text-pink-500 opacity-80" />
-          <IconFacebook className="h-7 w-7 text-blue-600 opacity-80" />
         </div>
 
         <div className="mt-10 flex items-center justify-center gap-4">
@@ -179,9 +175,9 @@ export default function Home() {
             {/* Conversation list mockup */}
             <div className="w-56 shrink-0 border-r border-slate-100 p-2 space-y-1">
               {[
-                { name: "Sarah M.", msg: "Thanks for the quick help!", platform: "whatsapp", time: "2m" },
+                { name: "Sarah M.", msg: "Thanks for the quick help!", platform: "instagram", time: "2m" },
                 { name: "Ahmed K.", msg: "When will my order arrive?", platform: "instagram", time: "8m" },
-                { name: "Lisa T.", msg: "Can I get a refund?", platform: "messenger", time: "1h" },
+                { name: "Lisa T.", msg: "Can I get a refund?", platform: "instagram", time: "1h" },
               ].map((c, i) => (
                 <div key={i} className={`rounded-lg px-3 py-2.5 ${i === 0 ? "bg-indigo-50 border-l-2 border-indigo-600" : ""}`}>
                   <div className="flex items-center justify-between">
@@ -189,11 +185,7 @@ export default function Home() {
                     <span className="text-[10px] text-slate-400">{c.time}</span>
                   </div>
                   <div className="text-[10px] text-slate-500 truncate mt-0.5">{c.msg}</div>
-                  <span className={`mt-1 inline-block rounded-full px-1.5 py-0 text-[9px] font-medium ${
-                    c.platform === "whatsapp" ? "bg-emerald-50 text-emerald-600" :
-                    c.platform === "instagram" ? "bg-purple-50 text-purple-600" :
-                    "bg-blue-50 text-blue-600"
-                  }`}>{c.platform}</span>
+                  <span className="mt-1 inline-block rounded-full bg-purple-50 px-1.5 py-0 text-[9px] font-medium text-purple-600">{c.platform}</span>
                 </div>
               ))}
             </div>
@@ -393,9 +385,9 @@ export default function Home() {
                 </div>
                 <div className="mt-3 flex gap-2">
                   {[
-                    { label: "WhatsApp", count: "1,203", color: "bg-emerald-50 text-emerald-700" },
-                    { label: "Instagram", count: "892", color: "bg-purple-50 text-purple-700" },
-                    { label: "Messenger", count: "752", color: "bg-blue-50 text-blue-700" },
+                    { label: "Instagram DMs", count: "1,417", color: "bg-purple-50 text-purple-700" },
+                    { label: "Answered by AI", count: "1,203", color: "bg-indigo-50 text-indigo-700" },
+                    { label: "By your team", count: "214", color: "bg-slate-100 text-slate-700" },
                   ].map(({ label, count, color }) => (
                     <div key={label} className={`flex-1 rounded-lg px-2 py-1.5 text-center ${color}`}>
                       <div className="text-xs font-bold">{count}</div>
@@ -492,18 +484,13 @@ export default function Home() {
       {/* ── Channels strip ───────────────────────────────────── */}
       <section className="border-t border-b border-slate-100 bg-slate-50 py-16">
         <div className="mx-auto max-w-4xl px-6 text-center">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">All your channels in one place</p>
-          <div className="flex items-center justify-center gap-8 sm:gap-14">
-            {[
-              { icon: <IconWhatsApp className="h-8 w-8" />, label: "WhatsApp", color: "text-emerald-500" },
-              { icon: <IconInstagram className="h-8 w-8" />, label: "Instagram", color: "text-pink-500" },
-              { icon: <IconFacebook className="h-8 w-8" />, label: "Messenger", color: "text-blue-600" },
-            ].map(({ icon, label, color }) => (
-              <div key={label} className={`flex flex-col items-center gap-2 ${color}`}>
-                {icon}
-                <span className="text-[10px] font-medium text-slate-500">{label}</span>
-              </div>
-            ))}
+          <div className="flex flex-col items-center gap-3 text-pink-500">
+            <IconInstagram className="h-10 w-10" />
+            <h2 className="text-xl font-bold text-slate-900">Built for Instagram DMs</h2>
+            <p className="max-w-md text-sm text-slate-500">
+              Connect your Instagram business account and every direct message lands in one inbox,
+              answered by AI in Arabic or English, with your team one click away.
+            </p>
           </div>
         </div>
       </section>
@@ -537,7 +524,7 @@ export default function Home() {
               </div>
               <ul className="space-y-3 mb-2">
                 {[
-                  "WhatsApp, Instagram and Messenger in one inbox",
+                  "Instagram DMs in one shared inbox",
                   "AI auto-replies in Arabic and English",
                   "Answers from your own knowledge base",
                   "Offers the AI quotes automatically until they end",
@@ -626,9 +613,7 @@ export default function Home() {
             <div>
               <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Channels</h4>
               <ul className="space-y-2.5 text-sm">
-                <li><span className="text-slate-500">WhatsApp</span></li>
                 <li><span className="text-slate-500">Instagram DMs</span></li>
-                <li><span className="text-slate-500">Messenger</span></li>
               </ul>
             </div>
             {/* Legal */}

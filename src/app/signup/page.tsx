@@ -61,7 +61,7 @@ export default function SignupPage() {
           <div className="mt-8 grid grid-cols-2 gap-3">
             {[
               { label: "AI Auto-Reply", desc: "Arabic & English, instantly" },
-              { label: "3 Channels", desc: "WhatsApp, Instagram, Messenger" },
+              { label: "Instagram DMs", desc: "One shared inbox" },
               { label: "Knowledge Base", desc: "Upload docs for RAG" },
               { label: "Team Inbox", desc: "Assign, tag, resolve" },
               { label: "Analytics", desc: "Response times + CSAT" },

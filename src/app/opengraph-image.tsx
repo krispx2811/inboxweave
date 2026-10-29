@@ -1,8 +1,8 @@
 import { ImageResponse } from "next/og";
 
-// Social preview for every page that doesn't define its own (WhatsApp, X,
+// Social preview for every page that doesn't define its own (Instagram, X,
 // LinkedIn, iMessage link cards). Replaces /og-image.png, which never existed.
-export const alt = "InboxWeave — AI auto-replies for WhatsApp, Instagram & Messenger";
+export const alt = "InboxWeave — AI auto-replies for Instagram DMs";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -25,7 +25,7 @@ export default function OpengraphImage() {
         <div style={{ display: "flex", fontSize: 40, fontWeight: 700, opacity: 0.95 }}>InboxWeave</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={{ display: "flex", fontSize: 68, fontWeight: 800, lineHeight: 1.1, letterSpacing: -1 }}>
-            AI auto-replies for WhatsApp, Instagram & Messenger
+            AI auto-replies for your Instagram DMs
           </div>
           <div style={{ display: "flex", fontSize: 32, opacity: 0.85 }}>
             Arabic & English · Your own prices and offers · Team inbox
