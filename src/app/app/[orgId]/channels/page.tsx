@@ -38,22 +38,20 @@ export default async function ChannelsPage({
   const { orgId } = await params;
   const { fb, ig, msg } = await searchParams;
   const admin = createSupabaseAdminClient();
-  const { data: channels } = await admin
-    .from("channels")
-    .select("id, platform, external_id, display_name, status, last_error, last_error_at, auto_accept_requests, created_at")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
+  const [{ data: channels }, { data: metaSettings }] = await Promise.all([
+    admin
+      .from("channels")
+      .select("id, platform, external_id, display_name, status, last_error, last_error_at, auto_accept_requests, created_at")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false }),
+    // Per-org app IDs (separate for Instagram vs Facebook).
+    admin.from("meta_settings").select("app_id, fb_app_id, ig_app_id").eq("org_id", orgId).maybeSingle(),
+  ]);
 
   const brokenChannels = (channels ?? []).filter((c) => c.status === "error");
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
 
-  // Read per-org app IDs (separate for Instagram vs Facebook).
-  const { data: metaSettings } = await admin
-    .from("meta_settings")
-    .select("app_id, fb_app_id, ig_app_id")
-    .eq("org_id", orgId)
-    .maybeSingle();
   const fbAppId =
     (metaSettings?.fb_app_id as string | undefined) ??
     (metaSettings?.app_id as string | undefined) ??
