@@ -8,6 +8,7 @@ import { acceptIgPendingRequests } from "@/lib/channels/ig-requests";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   findOrgByChannelExternalId,
+  scopeToSigningOrg,
   findOrgByVerifyToken,
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
@@ -106,16 +107,7 @@ export async function POST(req: NextRequest) {
   });
   if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
 
-  // A per-org signature only proves the payload was signed with that org's
-  // app secret, so drop entries for channels owned by any other org.
-  const scoped: typeof messages = [];
-  for (const m of messages) {
-    if (creds && (await findOrgByChannelExternalId(m.pageId, "instagram")) !== orgId) {
-      console.warn(`[instagram webhook] dropping entry for external_id=${m.pageId}: not owned by signing org=${orgId}`);
-      continue;
-    }
-    scoped.push(m);
-  }
+  const scoped = await scopeToSigningOrg(messages, (m) => m.pageId, "instagram", creds ? orgId : null);
 
   // Defer the heavy lifting (AI generate + send + DB writes) until AFTER
   // the 200 response is out the door. Keeps us well under Meta's ~5s

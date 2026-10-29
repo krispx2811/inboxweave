@@ -133,3 +133,28 @@ export async function findOrgByVerifyToken(token: string): Promise<string | null
   memoSet(orgByTokenCache, token, orgId);
   return orgId;
 }
+
+/**
+ * A per-org app-secret signature only proves the payload was signed by that
+ * org, so keep just the items whose channel that org owns; anything else in
+ * the batch is dropped. With the shared app secret (signingOrgId null) every
+ * item is kept, since a shared app legitimately batches several orgs' pages.
+ */
+export async function scopeToSigningOrg<T>(
+  items: T[],
+  externalIdOf: (item: T) => string,
+  platform: string,
+  signingOrgId: string | null,
+): Promise<T[]> {
+  if (!signingOrgId) return items;
+  const kept: T[] = [];
+  for (const item of items) {
+    const id = externalIdOf(item);
+    if ((await findOrgByChannelExternalId(id, platform)) === signingOrgId) {
+      kept.push(item);
+    } else {
+      console.warn(`[${platform} webhook] dropping entry for external_id=${id}: not owned by signing org=${signingOrgId}`);
+    }
+  }
+  return kept;
+}

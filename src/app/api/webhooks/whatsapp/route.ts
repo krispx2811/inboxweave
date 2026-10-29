@@ -4,6 +4,7 @@ import { parseWhatsAppWebhook } from "@/lib/channels/whatsapp";
 import { handleInbound } from "@/lib/channels/inbound";
 import {
   findOrgByChannelExternalId,
+  scopeToSigningOrg,
   findOrgByVerifyToken,
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
@@ -66,13 +67,8 @@ export async function POST(req: NextRequest) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
-  for (const m of messages) {
-    // A per-org signature only proves the payload was signed with that org's
-    // app secret, so drop messages for channels owned by any other org.
-    if (signedByOrg && (await findOrgByChannelExternalId(m.phoneNumberId, "whatsapp")) !== orgId) {
-      console.warn(`[whatsapp webhook] dropping message for external_id=${m.phoneNumberId}: not owned by signing org=${orgId}`);
-      continue;
-    }
+  const scoped = await scopeToSigningOrg(messages, (m) => m.phoneNumberId, "whatsapp", signedByOrg ? orgId : null);
+  for (const m of scoped) {
     await handleInbound({
       platform: "whatsapp",
       channelExternalId: m.phoneNumberId,

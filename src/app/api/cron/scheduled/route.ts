@@ -1,19 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedCron } from "@/lib/auth/cron";
 import { sendOutbound } from "@/lib/channels/router";
 
 export const runtime = "nodejs";
-
-/** Fail closed: 401 unless CRON_SECRET is set and sent as a Bearer token. */
-function isAuthorizedCron(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get("authorization") ?? "";
-  const theirs = Buffer.from(header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "", "utf8");
-  const ours = Buffer.from(secret, "utf8");
-  return theirs.length === ours.length && timingSafeEqual(theirs, ours);
-}
 
 /**
  * Cron endpoint to send scheduled messages.

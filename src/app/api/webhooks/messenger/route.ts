@@ -6,6 +6,7 @@ import { handleInbound } from "@/lib/channels/inbound";
 import { handleOwnerEcho } from "@/lib/channels/echo";
 import {
   findOrgByChannelExternalId,
+  scopeToSigningOrg,
   findOrgByVerifyToken,
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
@@ -59,16 +60,7 @@ export async function POST(req: NextRequest) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
-  // A per-org signature only proves the payload was signed with that org's
-  // app secret, so drop entries for channels owned by any other org.
-  const scoped: typeof messages = [];
-  for (const m of messages) {
-    if (signedByOrg && (await findOrgByChannelExternalId(m.pageId, "messenger")) !== orgId) {
-      console.warn(`[messenger webhook] dropping entry for external_id=${m.pageId}: not owned by signing org=${orgId}`);
-      continue;
-    }
-    scoped.push(m);
-  }
+  const scoped = await scopeToSigningOrg(messages, (m) => m.pageId, "messenger", signedByOrg ? orgId : null);
 
   after(async () => {
     try {
