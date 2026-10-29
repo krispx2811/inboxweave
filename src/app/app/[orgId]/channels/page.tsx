@@ -9,6 +9,7 @@ import {
 } from "./actions";
 import { IconWhatsApp, IconFacebook, IconChannels, IconTrash } from "@/components/icons";
 import { ConfirmForm } from "@/components/ConfirmForm";
+import { WhatsAppConnectionCheck } from "@/components/channels/WhatsAppConnectionCheck";
 
 export const dynamic = "force-dynamic";
 
@@ -157,7 +158,7 @@ export default async function ChannelsPage({
           </div>
           <div>
             <h2 className="font-semibold">WhatsApp Cloud API</h2>
-            <p className="text-xs text-slate-500">Paste the Phone Number ID and a permanent token from your Meta App's WhatsApp dev console.</p>
+            <p className="text-xs text-slate-500">Paste the Phone Number ID and a permanent System User token from Meta Business Settings.</p>
           </div>
         </div>
 
@@ -166,13 +167,13 @@ export default async function ChannelsPage({
             <p className="font-semibold text-slate-700">Where to find each value (Meta App dev console):</p>
             <ol className="list-decimal pl-4 space-y-1">
               <li>
-                Open your Meta App's WhatsApp dev console: <br />
+                Open your Meta App&apos;s WhatsApp dev console: <br />
                 <code className="text-[10px] text-indigo-600 break-all">https://developers.facebook.com/apps/&lt;YOUR_APP_ID&gt;/whatsapp-business/wa-dev-console/</code>
               </li>
               <li><strong>Phone Number ID</strong>: shown directly in the dev console next to your phone number. Copy the long numeric ID.</li>
-              <li><strong>Access token</strong>: the temporary 24-hour token at the top of the dev console works for testing. For production, generate a permanent token via the <strong>System User</strong> link inside that page (Meta will guide you to Business Settings).</li>
-              <li>Make sure the token has <code>whatsapp_business_messaging</code> + <code>whatsapp_business_management</code> permissions.</li>
-              <li>Add the webhook URL below to <strong>WhatsApp → Configuration → Webhook</strong> in the dev console, use the same Verify token you set in your <a href={`/app/${orgId}/settings/meta`} className="text-indigo-600 underline">Meta settings</a>, then subscribe to the <code>messages</code> field.</li>
+              <li><strong>Access token</strong>: in <strong>Meta Business Settings → Users → System users</strong>, add a system user (Admin), assign it your app and your WhatsApp account, then <strong>Generate new token</strong> with expiry <strong>Never</strong>. Temporary and personal tokens are rejected: they stop working when they expire or when that person logs out of Facebook.</li>
+              <li>Tick the <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code> permissions when generating it.</li>
+              <li>Add the webhook URL below to <strong>WhatsApp → Configuration → Webhook</strong> in the dev console, use the same Verify token you set in your <a href={`/app/${orgId}/settings/meta`} className="text-indigo-600 underline">Meta settings</a>, then subscribe to the <code>messages</code> field. InboxWeave subscribes your app to the WhatsApp account automatically when you connect; use <strong>Test connection</strong> on the channel below to confirm.</li>
             </ol>
             <p className="text-[10px] text-slate-500 pt-1">
               Token is stored encrypted at rest. We validate it against Meta as soon as you click Connect — bad credentials fail with a clear error.
@@ -191,7 +192,7 @@ export default async function ChannelsPage({
               </div>
             </div>
             <div>
-              <label className="label" htmlFor="accessToken">Access token (temporary or permanent)</label>
+              <label className="label" htmlFor="accessToken">Permanent access token (System User)</label>
               <input className="input font-mono" id="accessToken" name="accessToken" type="password" placeholder="EAA…" required autoComplete="off" />
             </div>
             <div className="flex items-center justify-between">
@@ -286,6 +287,7 @@ export default async function ChannelsPage({
                   </button>
                 </ConfirmForm>
               </div>
+              {c.platform === "whatsapp" && <WhatsAppConnectionCheck orgId={orgId} channelId={c.id as string} />}
               {c.platform === "instagram" && (
                 <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-2">
                   <form
