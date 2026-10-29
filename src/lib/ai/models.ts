@@ -88,11 +88,17 @@ function lowestReasoningEffort(model: string): string | undefined {
   return undefined;
 }
 
+/**
+ * GPT-5.1+ with reasoning off accepts `temperature`; it matters here because
+ * orgs default to 0 to stop invented prices and phone numbers. Pass
+ * `omitTemperature` for a model that has refused it.
+ */
 export function chatRequestBody(params: {
   model: string;
   temperature?: number;
   max_tokens?: number;
   messages: unknown[];
+  omitTemperature?: boolean;
 }): Record<string, unknown> {
   if (!isReasoningModel(params.model)) {
     return {
@@ -102,10 +108,37 @@ export function chatRequestBody(params: {
       messages: params.messages,
     };
   }
+  const effort = lowestReasoningEffort(params.model);
   return {
     model: params.model,
-    reasoning_effort: lowestReasoningEffort(params.model),
+    reasoning_effort: effort,
+    temperature: effort === "none" && !params.omitTemperature ? params.temperature : undefined,
     max_completion_tokens: params.max_tokens,
     messages: params.messages,
   };
+}
+
+function openAIError(body: string): { code?: string; param?: string } {
+  try {
+    return (JSON.parse(body) as { error?: { code?: string; param?: string } }).error ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * True when OpenAI refused the model itself (shut down, not on this key) or a
+ * parameter we send for it, as opposed to a problem with this one request
+ * such as a bad image URL or an over-long prompt.
+ */
+export function isModelRejection(status: number, body: string): boolean {
+  if (status === 404) return true;
+  if (status !== 400) return false;
+  const { code } = openAIError(body);
+  return code === "model_not_found" || code === "unsupported_parameter" || code === "unsupported_value";
+}
+
+/** The model accepts the request, just not a `temperature` setting. */
+export function isTemperatureRejection(status: number, body: string): boolean {
+  return status === 400 && openAIError(body).param === "temperature";
 }

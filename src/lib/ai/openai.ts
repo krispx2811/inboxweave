@@ -1,10 +1,13 @@
 import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createHash } from "node:crypto";
 import {
   BACKGROUND_MODEL,
   DEFAULT_MODEL,
   chatRequestBody,
+  isModelRejection,
+  isTemperatureRejection,
   modelFallbackChain,
   modelPricing,
 } from "./models";
@@ -14,15 +17,27 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 
 // One inbound message makes several OpenAI calls (language, sentiment,
 // classification, translation, embedding, reply), and each used to re-read and
-// decrypt the key. Cache it per warm function instance; a re-saved key takes
-// effect within the TTL, and a 401 evicts it immediately.
-const KEY_TTL_MS = 5 * 60_000;
+// decrypt the key. Cache it briefly per warm function instance: long enough to
+// cover one message's calls, short enough that a re-saved key on another
+// instance takes over quickly. Saving a key, or a 401, evicts it at once.
+const KEY_TTL_MS = 60_000;
 const keyCache = new Map<string, { key: string; expires: number }>();
 
-// Models OpenAI rejected recently on this instance, so each reply doesn't pay
-// for a failed attempt before falling back.
+export function forgetOpenAIKey(orgId: string): void {
+  keyCache.delete(orgId);
+}
+
+// Models OpenAI rejected recently, per API key (one org's key lacking a model
+// says nothing about another's), so each reply doesn't pay for a failed
+// attempt before falling back.
 const REJECTED_TTL_MS = 10 * 60_000;
 const rejectedModels = new Map<string, number>();
+// Models that refused `temperature`; they're sent without it from then on.
+const noTemperatureModels = new Set<string>();
+
+function keyId(apiKey: string): string {
+  return createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
+}
 
 /**
  * Fetch + decrypt the OpenAI key for a specific org.
@@ -95,10 +110,14 @@ export async function isOrgAiEnabled(orgId: string): Promise<boolean> {
     .eq("org_id", orgId)
     .maybeSingle();
   if (error) {
-    // Fail open: a missing column (migration 0017 not applied) or a transient
-    // read error must not silence the AI for every customer.
-    console.error(`[ai] isOrgAiEnabled failed for ${orgId}: ${error.message}`);
-    return true;
+    // A missing column means migration 0017 isn't applied, so no owner can
+    // have switched the AI off: treat as on rather than silencing every reply.
+    // Any other error keeps the kill switch authoritative.
+    if (error.code === "42703") {
+      console.error(`[ai] ai_settings.ai_enabled missing (apply migration 0017): ${error.message}`);
+      return true;
+    }
+    throw new Error(error.message);
   }
   // Treat a missing row or a null column as "on".
   return data?.ai_enabled !== false;
@@ -110,21 +129,6 @@ export interface ChatTurn {
 }
 
 
-/**
- * True when OpenAI refused the model itself (shut down, not on this key) or a
- * parameter we send for it, as opposed to a problem with this one request
- * such as a bad image URL or an over-long prompt.
- */
-function isModelRejection(status: number, body: string): boolean {
-  if (status === 404) return true;
-  try {
-    const code = (JSON.parse(body) as { error?: { code?: string } }).error?.code;
-    return code === "model_not_found" || code === "unsupported_parameter" || code === "unsupported_value";
-  } catch {
-    return false;
-  }
-}
-
 interface ChatCompletionResult {
   choices: Array<{ message?: { content?: string } }>;
   usage?: { prompt_tokens: number; completion_tokens: number };
@@ -132,11 +136,25 @@ interface ChatCompletionResult {
   usedModel: string;
 }
 
+async function postChat(apiKey: string, body: Record<string, unknown>) {
+  const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, ok: res.ok, text: await res.text() };
+}
+
 /**
  * Low-level chat completion via direct fetch (no SDK).
- * A 400/404 (model shut down, not available on this key, or a parameter the
- * model rejects) retries with the next model in the fallback chain; any other
- * failure, or the last model failing, throws with the error body.
+ * Only a rejection of the model itself (shut down, not on this key, or a
+ * parameter it doesn't take) moves on to the next model in the fallback
+ * chain; a problem with the request (bad image URL, prompt too long) or any
+ * other failure throws with the error body. `fallback: false` tries only the
+ * given model, for diagnostics that must surface the real failure.
  */
 export async function chatCompletion(params: {
   apiKey: string;
@@ -144,34 +162,33 @@ export async function chatCompletion(params: {
   temperature?: number;
   max_tokens?: number;
   messages: Array<{ role: string; content: unknown }>;
+  fallback?: boolean;
 }): Promise<ChatCompletionResult> {
   const now = Date.now();
-  const fullChain = modelFallbackChain(params.model);
-  const healthy = fullChain.filter((m) => (rejectedModels.get(m) ?? 0) < now);
+  const kid = keyId(params.apiKey);
+  const fullChain = params.fallback === false ? [params.model] : modelFallbackChain(params.model);
+  const healthy = fullChain.filter((m) => (rejectedModels.get(`${kid}:${m}`) ?? 0) < now);
   // Never skip everything: if all were rejected recently, try them all again.
   const chain = healthy.length > 0 ? healthy : fullChain;
   for (const [i, model] of chain.entries()) {
-    const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${params.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(chatRequestBody({ ...params, model })),
-    });
-    const text = await res.text();
-    if (res.ok) return { ...(JSON.parse(text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
+    const omitTemperature = noTemperatureModels.has(model);
+    let res = await postChat(params.apiKey, chatRequestBody({ ...params, model, omitTemperature }));
+    if (!omitTemperature && isTemperatureRejection(res.status, res.text)) {
+      noTemperatureModels.add(model);
+      res = await postChat(params.apiKey, chatRequestBody({ ...params, model, omitTemperature: true }));
+    }
+    if (res.ok) {
+      return { ...(JSON.parse(res.text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
+    }
     if (res.status === 401) {
       for (const [orgId, entry] of keyCache) if (entry.key === params.apiKey) keyCache.delete(orgId);
     }
-    const retryable = res.status === 400 || res.status === 404;
-    if (retryable && isModelRejection(res.status, text)) {
-      rejectedModels.set(model, Date.now() + REJECTED_TTL_MS);
+    const modelRejected = isModelRejection(res.status, res.text);
+    if (modelRejected) rejectedModels.set(`${kid}:${model}`, Date.now() + REJECTED_TTL_MS);
+    if (!modelRejected || i === chain.length - 1) {
+      throw new Error(`OpenAI chat ${res.status} (${model}): ${res.text.slice(0, 300)}`);
     }
-    if (!retryable || i === chain.length - 1) {
-      throw new Error(`OpenAI chat ${res.status} (${model}): ${text.slice(0, 300)}`);
-    }
-    console.warn(`[ai] ${model} rejected (${res.status}), falling back: ${text.slice(0, 200)}`);
+    console.warn(`[ai] ${model} rejected (${res.status}), falling back: ${res.text.slice(0, 200)}`);
   }
   throw new Error("unreachable");
 }
@@ -379,6 +396,7 @@ export async function rawChatCompletion(params: {
   temperature?: number;
   max_tokens?: number;
   messages: Array<{ role: string; content: string }>;
+  fallback?: boolean;
 }): Promise<string> {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const result = await chatCompletion({
@@ -387,6 +405,7 @@ export async function rawChatCompletion(params: {
     temperature: params.temperature,
     max_tokens: params.max_tokens,
     messages: params.messages,
+    fallback: params.fallback,
   });
   return result.choices[0]?.message?.content?.trim() ?? "";
 }

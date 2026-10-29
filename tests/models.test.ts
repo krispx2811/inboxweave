@@ -5,6 +5,8 @@ import {
   CHAT_MODELS,
   DEFAULT_MODEL,
   chatRequestBody,
+  isModelRejection,
+  isTemperatureRejection,
   modelFallbackChain,
   modelPricing,
   supportsVision,
@@ -21,7 +23,7 @@ test("GPT-4 models keep temperature and max_tokens", () => {
 
 test("GPT-5 models drop temperature and use max_completion_tokens", () => {
   const body = chatRequestBody({ model: "gpt-5-mini", temperature: 0, max_tokens: 10, messages });
-  assert.equal("temperature" in body, false);
+  assert.equal(body.temperature, undefined);
   assert.equal("max_tokens" in body, false);
   assert.equal(body.max_completion_tokens, 10);
   assert.equal(body.reasoning_effort, "minimal");
@@ -57,4 +59,25 @@ test("a retired model falls back to current ones", () => {
   assert.equal(new Set(chain).size, chain.length);
   assert.deepEqual(modelFallbackChain(DEFAULT_MODEL)[0], DEFAULT_MODEL);
   assert.equal(CHAT_MODELS.some((m) => m.id === "gpt-4.1-nano"), false);
+});
+
+test("GPT-5.1+ keeps temperature unless the model refused it", () => {
+  const body = chatRequestBody({ model: "gpt-5.4-mini", temperature: 0, messages });
+  assert.equal(body.temperature, 0);
+  const omitted = chatRequestBody({ model: "gpt-5.4-mini", temperature: 0, messages, omitTemperature: true });
+  assert.equal(omitted.temperature, undefined);
+  assert.equal(chatRequestBody({ model: "gpt-5-mini", temperature: 0, messages }).temperature, undefined);
+});
+
+test("only model-level errors count as a model rejection", () => {
+  const err = (code: string, param?: string) => JSON.stringify({ error: { code, param } });
+  assert.equal(isModelRejection(404, ""), true);
+  assert.equal(isModelRejection(400, err("model_not_found")), true);
+  assert.equal(isModelRejection(400, err("unsupported_parameter", "reasoning_effort")), true);
+  assert.equal(isModelRejection(400, err("invalid_image_url")), false);
+  assert.equal(isModelRejection(400, err("context_length_exceeded")), false);
+  assert.equal(isModelRejection(429, err("rate_limit_exceeded")), false);
+  assert.equal(isModelRejection(400, "not json"), false);
+  assert.equal(isTemperatureRejection(400, err("unsupported_value", "temperature")), true);
+  assert.equal(isTemperatureRejection(400, err("unsupported_value", "reasoning_effort")), false);
 });

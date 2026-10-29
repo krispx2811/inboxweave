@@ -98,6 +98,8 @@ export async function GET() {
         orgId,
         max_tokens: 20,
         messages: [{ role: "user", content: "say 'ok'" }],
+        // A diagnostic must report a rejected model, not hide it behind a fallback.
+        fallback: false,
       });
       test.generate = { ok: true, reply: out.slice(0, 50), ms: Date.now() - t0 };
     } catch (err) {

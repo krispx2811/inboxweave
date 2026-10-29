@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { DEFAULT_MODEL } from "@/lib/ai/models";
+import { forgetOpenAIKey } from "@/lib/ai/openai";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
@@ -76,6 +77,8 @@ export async function updateOpenAIKey(formData: FormData) {
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(error.message);
+  // Stop this instance using the old key straight away (others expire in 60s).
+  forgetOpenAIKey(parsed.orgId);
 
   await admin.from("audit_logs").insert({
     org_id: parsed.orgId,
