@@ -6,6 +6,7 @@ import { handleInbound } from "@/lib/channels/inbound";
 import { handleOwnerEcho } from "@/lib/channels/echo";
 import {
   findOrgByChannelExternalId,
+  scopeToSigningOrg,
   findOrgByVerifyToken,
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
@@ -43,21 +44,27 @@ export async function POST(req: NextRequest) {
   if (messages.length === 0) return NextResponse.json({ ok: true });
 
   const firstPageId = messages[0]!.pageId;
-  const orgId = await findOrgByChannelExternalId(firstPageId);
+  const orgId = await findOrgByChannelExternalId(firstPageId, "messenger");
 
   let appSecret = process.env.META_APP_SECRET;
+  let signedByOrg = false;
   if (orgId) {
     const creds = await getMetaCredentials(orgId, "fb");
-    if (creds) appSecret = creds.appSecret;
+    if (creds) {
+      appSecret = creds.appSecret;
+      signedByOrg = true;
+    }
   }
   if (!appSecret) return new NextResponse("not configured", { status: 500 });
   if (!verifyMetaSignatureWithSecret(raw, sig, appSecret)) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
+  const scoped = await scopeToSigningOrg(messages, (m) => m.pageId, "messenger", signedByOrg ? orgId : null);
+
   after(async () => {
     try {
-      for (const m of messages) {
+      for (const m of scoped) {
         if (m.isEcho) {
           await handleOwnerEcho({
             platform: "messenger",

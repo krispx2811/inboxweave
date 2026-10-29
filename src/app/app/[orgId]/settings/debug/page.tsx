@@ -14,6 +14,7 @@ export default async function DebugPage({
   const { data: logs } = await admin
     .from("webhook_debug")
     .select("id, platform, method, status_code, signature_ok, parsed_count, query_string, raw_body, error, created_at")
+    .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(50);
 
@@ -21,7 +22,7 @@ export default async function DebugPage({
     <main className="mx-auto max-w-4xl px-6 py-10">
       <div className="page-header">
         <h1>Webhook Debug Log</h1>
-        <p>Last 50 incoming webhook requests (all orgs). If this is empty, Meta isn&apos;t reaching your server.</p>
+        <p>Last 50 incoming webhook requests for this organization. If this is empty, Meta isn&apos;t reaching your server.</p>
       </div>
 
       <div className="space-y-2">

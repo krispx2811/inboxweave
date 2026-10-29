@@ -1,10 +1,12 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { saveSmsSettings } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function SmsChannelPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: settings } = await admin
     .from("sms_settings")

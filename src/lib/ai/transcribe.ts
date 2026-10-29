@@ -1,5 +1,6 @@
 import "server-only";
 import { getOpenAIKeyForOrg } from "./openai";
+import { isMetaMediaUrl } from "@/lib/net/safe-url";
 
 /**
  * Transcribe an audio file via OpenAI Whisper using direct multipart fetch
@@ -12,7 +13,13 @@ export async function transcribeAudio(params: {
 }): Promise<string> {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
 
-  const audioRes = await fetch(params.audioUrl, { signal: AbortSignal.timeout(30_000) });
+  // audioUrl comes from the inbound webhook payload: only fetch Meta CDN URLs.
+  if (!isMetaMediaUrl(params.audioUrl)) throw new Error("Refusing to fetch audio from untrusted URL");
+
+  const audioRes = await fetch(params.audioUrl, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!audioRes.ok) throw new Error(`Failed to fetch audio: ${audioRes.statusText}`);
   const blob = await audioRes.blob();
 

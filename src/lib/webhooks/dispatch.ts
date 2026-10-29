@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac } from "node:crypto";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { assertPublicHttpsUrl } from "@/lib/net/safe-url";
 
 export type WebhookEventType =
   | "message.inbound"
@@ -45,6 +46,8 @@ export async function dispatchWebhookEvent(params: {
     const start = Date.now();
     let statusCode = 0;
     try {
+      // Re-check at send time: the host's DNS may have changed since saving.
+      await assertPublicHttpsUrl(sub.url as string);
       const res = await fetch(sub.url as string, {
         method: "POST",
         headers: {
@@ -52,6 +55,7 @@ export async function dispatchWebhookEvent(params: {
           "X-Webhook-Signature": `sha256=${signature}`,
         },
         body,
+        redirect: "manual",
         signal: AbortSignal.timeout(10_000),
       });
       statusCode = res.status;

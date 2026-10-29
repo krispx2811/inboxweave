@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { requestGdprExport, requestGdprDelete } from "./actions";
 import { IconUser, IconTrash, IconShield } from "@/components/icons";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function GdprPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: requests } = await admin
     .from("gdpr_requests")

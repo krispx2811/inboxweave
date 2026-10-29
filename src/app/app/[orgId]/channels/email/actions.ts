@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
+import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
 
 const Schema = z.object({
   orgId: z.string().uuid(),
@@ -32,6 +33,11 @@ export async function saveEmailSettings(formData: FormData) {
   const creds = `${parsed.emailAddress}:${parsed.password}`;
   const encrypted = bufferToPgBytea(encryptSecret(creds));
   const admin = createSupabaseAdminClient();
+  await assertChannelNotOwnedElsewhere(admin, {
+    platform: "email",
+    externalId: parsed.emailAddress,
+    orgId: parsed.orgId,
+  });
   await admin.from("email_settings").upsert({
     org_id: parsed.orgId,
     email_address: parsed.emailAddress,

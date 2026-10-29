@@ -11,6 +11,19 @@ import {
   stopConfirmation,
 } from "@/lib/channels/commands";
 
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+// The admin client bypasses RLS, so every action that takes a conversation id
+// must prove it belongs to the org the caller was checked against.
+async function assertConversationInOrg(admin: AdminClient, conversationId: string, orgId: string) {
+  const { data } = await admin
+    .from("conversations")
+    .select("org_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (!data || data.org_id !== orgId) throw new Error("Conversation not found");
+}
+
 const ToggleSchema = z.object({
   orgId: z.string().uuid(),
   conversationId: z.string().uuid(),
@@ -25,6 +38,7 @@ export async function setAiEnabled(formData: FormData) {
   });
   const ctx = await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   await admin
     .from("conversations")
     .update({ ai_enabled: parsed.enabled })
@@ -54,12 +68,7 @@ export async function sendManualReply(formData: FormData) {
   });
   const ctx = await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
-  const { data: convo } = await admin
-    .from("conversations")
-    .select("id, org_id")
-    .eq("id", parsed.conversationId)
-    .single();
-  if (!convo || convo.org_id !== parsed.orgId) throw new Error("Conversation not found");
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
 
   // Agent-side stop/start commands: typing just "stop" / "start" (or the
   // Arabic equivalents like إيقاف / ابدأ) in the composer toggles AI auto-
@@ -109,7 +118,8 @@ export async function sendManualReply(formData: FormData) {
         await admin
           .from("conversations")
           .update({ last_message_at: new Date().toISOString() })
-          .eq("id", parsed.conversationId);
+          .eq("id", parsed.conversationId)
+          .eq("org_id", parsed.orgId);
       } catch (err) {
         console.error("[manual] stop/start confirmation send failed", err);
       }
@@ -148,7 +158,8 @@ export async function sendManualReply(formData: FormData) {
   await admin
     .from("conversations")
     .update({ last_message_at: new Date().toISOString() })
-    .eq("id", parsed.conversationId);
+    .eq("id", parsed.conversationId)
+    .eq("org_id", parsed.orgId);
 
   revalidatePath(`/app/${parsed.orgId}/inbox`);
 }
@@ -169,17 +180,20 @@ export async function addTag(formData: FormData) {
   });
   await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   const { data } = await admin
     .from("conversations")
     .select("tags")
     .eq("id", parsed.conversationId)
+    .eq("org_id", parsed.orgId)
     .single();
   const current = (data?.tags as string[]) ?? [];
   if (!current.includes(parsed.tag)) {
     await admin
       .from("conversations")
       .update({ tags: [...current, parsed.tag] })
-      .eq("id", parsed.conversationId);
+      .eq("id", parsed.conversationId)
+      .eq("org_id", parsed.orgId);
   }
   revalidatePath(`/app/${parsed.orgId}/inbox`);
 }
@@ -192,16 +206,19 @@ export async function removeTag(formData: FormData) {
   });
   await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   const { data } = await admin
     .from("conversations")
     .select("tags")
     .eq("id", parsed.conversationId)
+    .eq("org_id", parsed.orgId)
     .single();
   const current = (data?.tags as string[]) ?? [];
   await admin
     .from("conversations")
     .update({ tags: current.filter((t) => t !== parsed.tag) })
-    .eq("id", parsed.conversationId);
+    .eq("id", parsed.conversationId)
+    .eq("org_id", parsed.orgId);
   revalidatePath(`/app/${parsed.orgId}/inbox`);
 }
 
@@ -221,6 +238,7 @@ export async function setConversationStatus(formData: FormData) {
   });
   await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   const updates: Record<string, unknown> = { status: parsed.status };
   if (parsed.status === "resolved") updates.resolved_at = new Date().toISOString();
   if (parsed.status === "open") updates.resolved_at = null;
@@ -269,6 +287,7 @@ export async function assignConversation(formData: FormData) {
   });
   await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   await admin
     .from("conversations")
     .update({ assigned_user_id: parsed.userId || null })
@@ -293,6 +312,7 @@ export async function addInternalNote(formData: FormData) {
   });
   const ctx = await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   await admin.from("internal_notes").insert({
     org_id: parsed.orgId,
     conversation_id: parsed.conversationId,
@@ -320,6 +340,7 @@ export async function scheduleMessage(formData: FormData) {
   });
   const ctx = await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   await admin.from("scheduled_messages").insert({
     org_id: parsed.orgId,
     conversation_id: parsed.conversationId,
@@ -346,6 +367,7 @@ export async function togglePin(formData: FormData) {
   });
   await requireOrgMember(parsed.orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, parsed.conversationId, parsed.orgId);
   await admin
     .from("conversations")
     .update({ is_pinned: parsed.pinned })
@@ -361,6 +383,7 @@ export async function markRead(formData: FormData) {
   const conversationId = formData.get("conversationId") as string;
   await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
+  await assertConversationInOrg(admin, conversationId, orgId);
   await admin
     .from("conversations")
     .update({ read_at: new Date().toISOString() })
@@ -375,6 +398,7 @@ export async function generateConversationSummary(formData: FormData) {
   const orgId = formData.get("orgId") as string;
   const conversationId = formData.get("conversationId") as string;
   await requireOrgMember(orgId);
+  await assertConversationInOrg(createSupabaseAdminClient(), conversationId, orgId);
   try {
     const { generateSummary } = await import("@/lib/ai/analysis");
     const summary = await generateSummary(orgId, conversationId);
@@ -401,6 +425,7 @@ export async function refreshSuggestions(formData: FormData) {
   const orgId = formData.get("orgId") as string;
   const conversationId = formData.get("conversationId") as string;
   await requireOrgMember(orgId);
+  await assertConversationInOrg(createSupabaseAdminClient(), conversationId, orgId);
   try {
     const { generateSuggestedReplies } = await import("@/lib/ai/analysis");
     const suggestions = await generateSuggestedReplies(orgId, conversationId);
@@ -408,7 +433,7 @@ export async function refreshSuggestions(formData: FormData) {
     // No unique constraint on conversation_id → use delete + insert rather
     // than upsert, to avoid "there is no unique or exclusion constraint"
     // errors from PostgREST.
-    await admin.from("suggested_replies").delete().eq("conversation_id", conversationId);
+    await admin.from("suggested_replies").delete().eq("conversation_id", conversationId).eq("org_id", orgId);
     await admin.from("suggested_replies").insert({
       org_id: orgId,
       conversation_id: conversationId,
@@ -444,9 +469,10 @@ export async function bulkAction(formData: FormData) {
   } else if (action.startsWith("tag:")) {
     const tag = action.slice(4);
     for (const id of ids) {
-      const { data } = await admin.from("conversations").select("tags").eq("id", id).single();
-      const current = (data?.tags as string[]) ?? [];
-      if (!current.includes(tag)) await admin.from("conversations").update({ tags: [...current, tag] }).eq("id", id);
+      const { data } = await admin.from("conversations").select("tags").eq("id", id).eq("org_id", orgId).maybeSingle();
+      if (!data) continue;
+      const current = (data.tags as string[]) ?? [];
+      if (!current.includes(tag)) await admin.from("conversations").update({ tags: [...current, tag] }).eq("id", id).eq("org_id", orgId);
     }
   } else if (action.startsWith("assign:")) {
     await admin.from("conversations").update({ assigned_user_id: action.slice(7) || null }).in("id", ids).eq("org_id", orgId);

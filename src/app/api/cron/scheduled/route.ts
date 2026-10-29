@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedCron } from "@/lib/auth/cron";
 import { sendOutbound } from "@/lib/channels/router";
 
 export const runtime = "nodejs";
@@ -7,15 +8,15 @@ export const runtime = "nodejs";
 /**
  * Cron endpoint to send scheduled messages.
  * Call this from Vercel Cron (vercel.json) or an external cron every 1 minute:
- *   GET /api/cron/scheduled?key=<CRON_SECRET>
+ *   GET /api/cron/scheduled
+ *   Authorization: Bearer <CRON_SECRET>
  *
  * Picks up all pending scheduled_messages where scheduled_at <= now(),
  * sends them, and marks them as sent.
  */
 export async function GET(req: NextRequest) {
-  const key = req.nextUrl.searchParams.get("key");
-  if (key !== process.env.CRON_SECRET && process.env.CRON_SECRET) {
-    return new NextResponse("forbidden", { status: 403 });
+  if (!isAuthorizedCron(req)) {
+    return new NextResponse("unauthorized", { status: 401 });
   }
 
   const admin = createSupabaseAdminClient();

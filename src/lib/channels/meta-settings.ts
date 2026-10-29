@@ -99,18 +99,23 @@ export async function getAppSecretForProduct(
   return creds?.appSecret ?? null;
 }
 
-export async function findOrgByChannelExternalId(externalId: string): Promise<string | null> {
-  const cached = memoGet(orgByExtIdCache, externalId);
+export async function findOrgByChannelExternalId(
+  externalId: string,
+  platform?: string,
+): Promise<string | null> {
+  const cacheKey = `${platform ?? "*"}:${externalId}`;
+  const cached = memoGet(orgByExtIdCache, cacheKey);
   if (cached.hit) return cached.value;
 
   const admin = createSupabaseAdminClient();
-  const { data } = await admin
+  let query = admin
     .from("channels")
     .select("org_id")
-    .eq("external_id", externalId)
-    .maybeSingle();
+    .eq("external_id", externalId);
+  if (platform) query = query.eq("platform", platform);
+  const { data } = await query.maybeSingle();
   const orgId = (data?.org_id as string | undefined) ?? null;
-  memoSet(orgByExtIdCache, externalId, orgId);
+  memoSet(orgByExtIdCache, cacheKey, orgId);
   return orgId;
 }
 
@@ -127,4 +132,29 @@ export async function findOrgByVerifyToken(token: string): Promise<string | null
   const orgId = (data?.org_id as string | undefined) ?? null;
   memoSet(orgByTokenCache, token, orgId);
   return orgId;
+}
+
+/**
+ * A per-org app-secret signature only proves the payload was signed by that
+ * org, so keep just the items whose channel that org owns; anything else in
+ * the batch is dropped. With the shared app secret (signingOrgId null) every
+ * item is kept, since a shared app legitimately batches several orgs' pages.
+ */
+export async function scopeToSigningOrg<T>(
+  items: T[],
+  externalIdOf: (item: T) => string,
+  platform: string,
+  signingOrgId: string | null,
+): Promise<T[]> {
+  if (!signingOrgId) return items;
+  const kept: T[] = [];
+  for (const item of items) {
+    const id = externalIdOf(item);
+    if ((await findOrgByChannelExternalId(id, platform)) === signingOrgId) {
+      kept.push(item);
+    } else {
+      console.warn(`[${platform} webhook] dropping entry for external_id=${id}: not owned by signing org=${signingOrgId}`);
+    }
+  }
+  return kept;
 }

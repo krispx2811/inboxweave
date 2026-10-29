@@ -4,6 +4,7 @@ import { parseWhatsAppWebhook } from "@/lib/channels/whatsapp";
 import { handleInbound } from "@/lib/channels/inbound";
 import {
   findOrgByChannelExternalId,
+  scopeToSigningOrg,
   findOrgByVerifyToken,
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
@@ -45,13 +46,17 @@ export async function POST(req: NextRequest) {
 
   // Identify the org via the first message's phone_number_id.
   const firstPhoneId = messages[0]!.phoneNumberId;
-  const orgId = await findOrgByChannelExternalId(firstPhoneId);
+  const orgId = await findOrgByChannelExternalId(firstPhoneId, "whatsapp");
 
   // Resolve the signing secret: prefer per-org, fall back to global env.
   let appSecret = process.env.META_APP_SECRET;
+  let signedByOrg = false;
   if (orgId) {
     const creds = await getMetaCredentials(orgId, "fb");
-    if (creds) appSecret = creds.appSecret;
+    if (creds) {
+      appSecret = creds.appSecret;
+      signedByOrg = true;
+    }
   }
   if (!appSecret) {
     console.warn("[whatsapp webhook] no app secret available — rejecting");
@@ -62,7 +67,8 @@ export async function POST(req: NextRequest) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
-  for (const m of messages) {
+  const scoped = await scopeToSigningOrg(messages, (m) => m.phoneNumberId, "whatsapp", signedByOrg ? orgId : null);
+  for (const m of scoped) {
     await handleInbound({
       platform: "whatsapp",
       channelExternalId: m.phoneNumberId,

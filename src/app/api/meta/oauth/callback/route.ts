@@ -3,6 +3,8 @@ import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 import { getMetaCredentials } from "@/lib/channels/meta-settings";
+import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
+import { verifyState } from "@/lib/auth/oauth-state";
 
 export const runtime = "nodejs";
 
@@ -31,19 +33,13 @@ export async function GET(req: NextRequest) {
   }
   if (!code || !state) return NextResponse.redirect(new URL("/", req.url));
 
-  let orgId: string;
+  // Signed + time-limited; see src/lib/auth/oauth-state.ts.
+  const decoded = verifyState(state);
+  if (!decoded) return new NextResponse("bad state", { status: 400 });
+  const orgId = decoded.orgId;
   let flow: "ig" | "fb" | "wa" = "fb";
-  try {
-    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
-      orgId: string;
-      flow?: "ig" | "fb" | "wa";
-    };
-    orgId = decoded.orgId;
-    if (decoded.flow === "ig") flow = "ig";
-    else if (decoded.flow === "wa") flow = "wa";
-  } catch {
-    return new NextResponse("bad state", { status: 400 });
-  }
+  if (decoded.flow === "ig") flow = "ig";
+  else if (decoded.flow === "wa") flow = "wa";
 
   // If this callback was triggered by an Instagram Business Login, delegate
   // to the IG handler by forwarding the same query params. IMPORTANT: use
@@ -61,10 +57,14 @@ export async function GET(req: NextRequest) {
   // WhatsApp via Facebook Login: exchange the code for a long-lived user
   // token, list the WABAs the user owns, and create a channel for each phone.
   if (flow === "wa") {
-    return handleWhatsAppFlow(req, orgId, code);
+    return handleWhatsAppFlow(req, orgId, code, decoded.uid);
   }
 
-  await requireOrgMember(orgId);
+  const ctx = await requireOrgMember(orgId);
+  if (ctx.userId !== decoded.uid) return new NextResponse("bad state", { status: 400 });
+  if (ctx.role !== "owner") {
+    return redirectBack(req, orgId, "error", "Only owners can connect channels");
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const redirectUri = `${appUrl}/api/meta/oauth/callback`;
@@ -119,6 +119,18 @@ export async function GET(req: NextRequest) {
   let igCount = 0;
 
   for (const page of pages) {
+    try {
+      await assertChannelNotOwnedElsewhere(admin, { platform: "messenger", externalId: page.id, orgId });
+      if (page.instagram_business_account?.id) {
+        await assertChannelNotOwnedElsewhere(admin, {
+          platform: "instagram",
+          externalId: page.instagram_business_account.id,
+          orgId,
+        });
+      }
+    } catch (err) {
+      return redirectBack(req, orgId, "error", (err as Error).message);
+    }
     try {
       const encrypted = bufferToPgBytea(encryptSecret(page.access_token));
       const { error: upErr } = await admin.from("channels").upsert(
@@ -180,8 +192,12 @@ export async function GET(req: NextRequest) {
  * find WABAs the user owns, list phone numbers, upsert one channel per
  * phone, and subscribe each WABA to our webhook.
  */
-async function handleWhatsAppFlow(req: NextRequest, orgId: string, code: string) {
-  await requireOrgMember(orgId);
+async function handleWhatsAppFlow(req: NextRequest, orgId: string, code: string, stateUserId: string) {
+  const ctx = await requireOrgMember(orgId);
+  if (ctx.userId !== stateUserId) return new NextResponse("bad state", { status: 400 });
+  if (ctx.role !== "owner") {
+    return redirectBack(req, orgId, "error", "Only owners can connect channels");
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   const redirectUri = `${appUrl}/api/meta/oauth/callback`;
@@ -245,6 +261,11 @@ async function handleWhatsAppFlow(req: NextRequest, orgId: string, code: string)
       ).catch(() => {});
 
       for (const phone of waba.phone_numbers?.data ?? []) {
+        try {
+          await assertChannelNotOwnedElsewhere(admin, { platform: "whatsapp", externalId: phone.id, orgId });
+        } catch (err) {
+          return redirectBack(req, orgId, "error", (err as Error).message);
+        }
         const cipher = bufferToPgBytea(encryptSecret(userToken));
         await admin.from("channels").upsert(
           {

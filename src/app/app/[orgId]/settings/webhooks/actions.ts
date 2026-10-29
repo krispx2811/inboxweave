@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { assertPublicHttpsUrl } from "@/lib/net/safe-url";
 
 const AddSchema = z.object({
   orgId: z.string().uuid(),
@@ -20,6 +21,7 @@ export async function addWebhook(formData: FormData) {
   });
   const ctx = await requireOrgMember(parsed.orgId);
   if (ctx.role !== "owner") throw new Error("Only owners can manage webhooks");
+  await assertPublicHttpsUrl(parsed.url);
 
   const events = parsed.events.split(",").map((e) => e.trim()).filter(Boolean);
   const secret = randomBytes(32).toString("hex");

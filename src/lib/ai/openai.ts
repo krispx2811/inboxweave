@@ -5,6 +5,7 @@ import {
   BACKGROUND_MODEL,
   DEFAULT_MODEL,
   chatRequestBody,
+  classifyOpenAIError,
   modelFallbackChain,
   modelPricing,
 } from "./models";
@@ -14,15 +15,32 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 
 // One inbound message makes several OpenAI calls (language, sentiment,
 // classification, translation, embedding, reply), and each used to re-read and
-// decrypt the key. Cache it per warm function instance; a re-saved key takes
-// effect within the TTL, and a 401 evicts it immediately.
-const KEY_TTL_MS = 5 * 60_000;
+// decrypt the key. Cache it briefly per warm function instance: long enough to
+// cover one message's calls, short enough that a re-saved key on another
+// instance takes over quickly. Saving a key, or a 401, evicts it at once.
+const KEY_TTL_MS = 60_000;
 const keyCache = new Map<string, { key: string; expires: number }>();
 
-// Models OpenAI rejected recently on this instance, so each reply doesn't pay
-// for a failed attempt before falling back.
+export function forgetOpenAIKey(orgId: string): void {
+  keyCache.delete(orgId);
+}
+
+// Models OpenAI rejected recently, keyed by API key + model (one org's key
+// lacking a model says nothing about another's), so each reply doesn't pay
+// for a failed attempt before falling back. Expired entries are removed on read.
 const REJECTED_TTL_MS = 10 * 60_000;
 const rejectedModels = new Map<string, number>();
+// Tuning parameters each model has refused; left out of its requests from then on.
+const refusedParams = new Map<string, Set<string>>();
+
+function recentlyRejected(apiKey: string, model: string, now: number): boolean {
+  const key = `${apiKey}:${model}`;
+  const until = rejectedModels.get(key);
+  if (until === undefined) return false;
+  if (until > now) return true;
+  rejectedModels.delete(key);
+  return false;
+}
 
 /**
  * Fetch + decrypt the OpenAI key for a specific org.
@@ -89,19 +107,17 @@ export async function getAiSettings(orgId: string): Promise<AiSettings> {
  */
 export async function isOrgAiEnabled(orgId: string): Promise<boolean> {
   const admin = createSupabaseAdminClient();
+  // select("*") rather than naming the column: before migration 0017 the
+  // column simply isn't in the row (reads as on) instead of failing the query.
+  // Real errors still throw, so the kill switch stays authoritative.
   const { data, error } = await admin
     .from("ai_settings")
-    .select("ai_enabled")
+    .select("*")
     .eq("org_id", orgId)
     .maybeSingle();
-  if (error) {
-    // Fail open: a missing column (migration 0017 not applied) or a transient
-    // read error must not silence the AI for every customer.
-    console.error(`[ai] isOrgAiEnabled failed for ${orgId}: ${error.message}`);
-    return true;
-  }
-  // Treat a missing row or a null column as "on".
-  return data?.ai_enabled !== false;
+  if (error) throw new Error(error.message);
+  // Treat a missing row or a null/missing column as "on".
+  return (data as { ai_enabled?: boolean | null } | null)?.ai_enabled !== false;
 }
 
 export interface ChatTurn {
@@ -109,21 +125,6 @@ export interface ChatTurn {
   content: string;
 }
 
-
-/**
- * True when OpenAI refused the model itself (shut down, not on this key) or a
- * parameter we send for it, as opposed to a problem with this one request
- * such as a bad image URL or an over-long prompt.
- */
-function isModelRejection(status: number, body: string): boolean {
-  if (status === 404) return true;
-  try {
-    const code = (JSON.parse(body) as { error?: { code?: string } }).error?.code;
-    return code === "model_not_found" || code === "unsupported_parameter" || code === "unsupported_value";
-  } catch {
-    return false;
-  }
-}
 
 interface ChatCompletionResult {
   choices: Array<{ message?: { content?: string } }>;
@@ -133,10 +134,43 @@ interface ChatCompletionResult {
 }
 
 /**
+ * One model's attempt. A tuning parameter the model refuses is dropped, and
+ * the same model retried, at most once per such parameter.
+ */
+async function postChat(params: {
+  apiKey: string;
+  model: string;
+  temperature?: number;
+  max_tokens?: number;
+  messages: unknown[];
+}) {
+  const refused = refusedParams.get(params.model) ?? new Set<string>();
+  for (;;) {
+    const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(chatRequestBody({ ...params, omit: refused })),
+    });
+    const text = await res.text();
+    const error = res.ok ? null : classifyOpenAIError(res.status, text);
+    if (error?.kind === "param" && !refused.has(error.param)) {
+      refused.add(error.param);
+      refusedParams.set(params.model, refused);
+      continue;
+    }
+    return { status: res.status, text, error };
+  }
+}
+
+/**
  * Low-level chat completion via direct fetch (no SDK).
- * A 400/404 (model shut down, not available on this key, or a parameter the
- * model rejects) retries with the next model in the fallback chain; any other
- * failure, or the last model failing, throws with the error body.
+ * Only a rejection of the model itself (shut down, not on this key) moves on
+ * to the next model in the fallback chain; `usedModel` says which answered.
+ * A problem with the request (bad image URL, prompt too long) or any other
+ * failure throws with the error body.
  */
 export async function chatCompletion(params: {
   apiKey: string;
@@ -147,33 +181,24 @@ export async function chatCompletion(params: {
 }): Promise<ChatCompletionResult> {
   const now = Date.now();
   const fullChain = modelFallbackChain(params.model);
-  const healthy = fullChain.filter((m) => (rejectedModels.get(m) ?? 0) < now);
+  const healthy = fullChain.filter((m) => !recentlyRejected(params.apiKey, m, now));
   // Never skip everything: if all were rejected recently, try them all again.
   const chain = healthy.length > 0 ? healthy : fullChain;
-  for (const [i, model] of chain.entries()) {
-    const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${params.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(chatRequestBody({ ...params, model })),
-    });
-    const text = await res.text();
-    if (res.ok) return { ...(JSON.parse(text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
+  let lastError: Error | undefined;
+  for (const model of chain) {
+    const res = await postChat({ ...params, model });
+    if (!res.error) {
+      return { ...(JSON.parse(res.text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
+    }
     if (res.status === 401) {
       for (const [orgId, entry] of keyCache) if (entry.key === params.apiKey) keyCache.delete(orgId);
     }
-    const retryable = res.status === 400 || res.status === 404;
-    if (retryable && isModelRejection(res.status, text)) {
-      rejectedModels.set(model, Date.now() + REJECTED_TTL_MS);
-    }
-    if (!retryable || i === chain.length - 1) {
-      throw new Error(`OpenAI chat ${res.status} (${model}): ${text.slice(0, 300)}`);
-    }
-    console.warn(`[ai] ${model} rejected (${res.status}), falling back: ${text.slice(0, 200)}`);
+    lastError = new Error(`OpenAI chat ${res.status} (${model}): ${res.text.slice(0, 300)}`);
+    if (res.error.kind !== "model") throw lastError;
+    rejectedModels.set(`${params.apiKey}:${model}`, Date.now() + REJECTED_TTL_MS);
+    console.warn(`[ai] ${model} rejected (${res.status}): ${res.text.slice(0, 200)}`);
   }
-  throw new Error("unreachable");
+  throw lastError!;
 }
 
 async function logUsage(params: {

@@ -88,24 +88,65 @@ function lowestReasoningEffort(model: string): string | undefined {
   return undefined;
 }
 
+/**
+ * GPT-5.1+ with reasoning off accepts `temperature`; it matters here because
+ * orgs default to 0 to stop invented prices and phone numbers. `omit` lists
+ * parameters a model has refused, which are left out of the request.
+ */
 export function chatRequestBody(params: {
   model: string;
   temperature?: number;
   max_tokens?: number;
   messages: unknown[];
+  omit?: ReadonlySet<string>;
 }): Record<string, unknown> {
-  if (!isReasoningModel(params.model)) {
-    return {
-      model: params.model,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-      messages: params.messages,
-    };
+  const effort = lowestReasoningEffort(params.model);
+  const body: Record<string, unknown> = isReasoningModel(params.model)
+    ? {
+        model: params.model,
+        reasoning_effort: effort,
+        temperature: effort === "none" ? params.temperature : undefined,
+        max_completion_tokens: params.max_tokens,
+        messages: params.messages,
+      }
+    : {
+        model: params.model,
+        temperature: params.temperature,
+        max_tokens: params.max_tokens,
+        messages: params.messages,
+      };
+  for (const param of params.omit ?? []) delete body[param];
+  return body;
+}
+
+// Settings we add for tuning, which a model may refuse without the request
+// being wrong; never model or messages.
+const OPTIONAL_PARAMS = new Set(["temperature", "reasoning_effort", "max_tokens", "max_completion_tokens"]);
+
+export type OpenAIErrorKind =
+  /** The model refused one of our tuning parameters: drop it, same model. */
+  | { kind: "param"; param: string }
+  /** The model itself is gone or not on this key: try the next model. */
+  | { kind: "model" }
+  /** Anything else (bad image URL, prompt too long, rate limit, outage). */
+  | { kind: "request" };
+
+export function classifyOpenAIError(status: number, body: string): OpenAIErrorKind {
+  if (status === 404) return { kind: "model" };
+  if (status !== 400) return { kind: "request" };
+  let error: { code?: string; param?: string } = {};
+  try {
+    error = (JSON.parse(body) as { error?: typeof error }).error ?? {};
+  } catch {
+    return { kind: "request" };
   }
-  return {
-    model: params.model,
-    reasoning_effort: lowestReasoningEffort(params.model),
-    max_completion_tokens: params.max_tokens,
-    messages: params.messages,
-  };
+  if (error.code === "model_not_found") return { kind: "model" };
+  if (
+    (error.code === "unsupported_parameter" || error.code === "unsupported_value") &&
+    error.param &&
+    OPTIONAL_PARAMS.has(error.param)
+  ) {
+    return { kind: "param", param: error.param };
+  }
+  return { kind: "request" };
 }

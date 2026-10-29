@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import {
   updateAiSettings,
   updateOpenAIKey,
@@ -17,6 +18,7 @@ export default async function SettingsPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const [{ data: settings }, { data: secrets }] = await Promise.all([
     admin
@@ -66,10 +68,12 @@ export default async function SettingsPage({
           </div>
           <div className="max-w-[300px]">
             <label className="label" htmlFor="model">Model</label>
-            <select id="model" name="model" className="input" defaultValue={
-                CHAT_MODELS.some((m) => m.id === settings?.model) ? settings!.model : DEFAULT_MODEL
-              }
-            >
+            <select id="model" name="model" className="input" defaultValue={settings?.model ?? DEFAULT_MODEL}>
+              {/* Keep a model we no longer list selectable, so saving the
+                  prompt doesn't silently switch it. */}
+              {settings?.model && !CHAT_MODELS.some((m) => m.id === settings.model) && (
+                <option value={settings.model}>{settings.model} (no longer offered, pick a new model)</option>
+              )}
               {CHAT_MODELS.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}

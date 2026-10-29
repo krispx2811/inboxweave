@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedCron } from "@/lib/auth/cron";
 import {
   bufferToPgBytea,
   decryptSecret,
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
 /**
  * Refreshes long-lived access tokens for Instagram Business Login channels.
  * Call daily:
- *   GET /api/cron/refresh-tokens?key=<CRON_SECRET>
+ *   GET /api/cron/refresh-tokens
+ *   Authorization: Bearer <CRON_SECRET>
  *
  * Meta IG Business Login tokens are valid for 60 days. Calling the refresh
  * endpoint within that window resets the clock. This job refreshes any IG
@@ -24,9 +26,8 @@ export const dynamic = "force-dynamic";
  * permanent (derived from a long-lived user token) so we don't refresh them.
  */
 export async function GET(req: NextRequest) {
-  const key = req.nextUrl.searchParams.get("key");
-  if (process.env.CRON_SECRET && key !== process.env.CRON_SECRET) {
-    return new NextResponse("forbidden", { status: 403 });
+  if (!isAuthorizedCron(req)) {
+    return new NextResponse("unauthorized", { status: 401 });
   }
 
   const admin = createSupabaseAdminClient();

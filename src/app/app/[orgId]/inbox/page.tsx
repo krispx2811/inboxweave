@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
+import { escapePostgrestSearch } from "@/lib/search";
 import { RealtimeRefresher } from "@/components/inbox/RealtimeRefresher";
 import { NotificationPrompt } from "@/components/inbox/NotificationPrompt";
 import { Composer } from "@/components/inbox/Composer";
@@ -29,6 +31,8 @@ export default async function InboxPage(props: {
   params: Promise<{ orgId: string }>;
   searchParams: Promise<Search>;
 }) {
+  // Outside the try: the redirect() thrown on failure must not be caught.
+  await requireOrgMember((await props.params).orgId);
   try {
     return await renderInbox(props);
   } catch (err) {
@@ -69,7 +73,8 @@ async function renderInbox({
     .order("last_message_at", { ascending: false })
     .limit(pageLimit);
 
-  if (q) convQuery = convQuery.or(`contact_name.ilike.%${q}%,contact_username.ilike.%${q}%,contact_external_id.ilike.%${q}%`);
+  const safeQ = q ? escapePostgrestSearch(q) : "";
+  if (safeQ) convQuery = convQuery.or(`contact_name.ilike.%${safeQ}%,contact_username.ilike.%${safeQ}%,contact_external_id.ilike.%${safeQ}%`);
   if (filterStatus) convQuery = convQuery.eq("status", filterStatus);
   if (filterTag) convQuery = convQuery.contains("tags", [filterTag]);
 

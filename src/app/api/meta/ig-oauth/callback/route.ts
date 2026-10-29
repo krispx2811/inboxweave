@@ -3,6 +3,8 @@ import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 import { getMetaCredentials } from "@/lib/channels/meta-settings";
+import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
+import { verifyState } from "@/lib/auth/oauth-state";
 
 export const runtime = "nodejs";
 
@@ -35,15 +37,16 @@ export async function GET(req: NextRequest) {
   if (error) return new NextResponse(`Instagram error: ${error} — ${errorDesc}`, { status: 400 });
   if (!code || !state) return NextResponse.redirect(new URL("/", req.url));
 
-  let orgId: string;
-  try {
-    const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as { orgId: string };
-    orgId = decoded.orgId;
-  } catch {
-    return new NextResponse("bad state", { status: 400 });
-  }
+  // Signed + time-limited; see src/lib/auth/oauth-state.ts.
+  const decoded = verifyState(state);
+  if (!decoded) return new NextResponse("bad state", { status: 400 });
+  const orgId = decoded.orgId;
 
-  await requireOrgMember(orgId);
+  const ctx = await requireOrgMember(orgId);
+  if (ctx.userId !== decoded.uid) return new NextResponse("bad state", { status: 400 });
+  if (ctx.role !== "owner") {
+    return redirectBack(req, orgId, "error", "Only owners can connect channels");
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
   // IMPORTANT: This MUST match the redirect_uri that was used in the original
@@ -72,7 +75,6 @@ export async function GET(req: NextRequest) {
     body: shortBody.toString(),
   });
   const tokenText = await tokenRes.text();
-  console.log("[ig oauth] short-lived status:", tokenRes.status, "body:", tokenText.slice(0, 300));
 
   let tokenJson: {
     access_token?: string;
@@ -87,6 +89,8 @@ export async function GET(req: NextRequest) {
     return redirectBack(req, orgId, "error", `Step 1 parse: ${tokenText.slice(0, 100)}`);
   }
 
+  // Never log the body: it carries access_token.
+  console.log("[ig oauth] short-lived status:", tokenRes.status, tokenJson.error_type ?? "", tokenJson.error_message ?? "");
   if (!tokenRes.ok || !tokenJson.access_token) {
     return redirectBack(req, orgId, "error", `Step 1: ${tokenJson.error_message ?? JSON.stringify(tokenJson).slice(0, 100)}`);
   }
@@ -110,8 +114,9 @@ export async function GET(req: NextRequest) {
       longUrl.searchParams.set("access_token", accessToken);
       const longRes = await fetch(longUrl.toString());
       const longText = await longRes.text();
-      console.log(`[ig oauth] long-lived (${host}):`, longRes.status, longText.slice(0, 150));
-      const longJson = JSON.parse(longText) as { access_token?: string };
+      const longJson = JSON.parse(longText) as { access_token?: string; error?: { message?: string; type?: string } };
+      // Never log the body: it carries access_token.
+      console.log(`[ig oauth] long-lived (${host}):`, longRes.status, longJson.error?.type ?? "", longJson.error?.message ?? "");
       if (longJson.access_token) { accessToken = longJson.access_token; break; }
     } catch (err) {
       console.log(`[ig oauth] long-lived (${host}) threw:`, (err as Error).message);
@@ -161,6 +166,11 @@ export async function GET(req: NextRequest) {
 
   // ── Step 5: persist channel ─────────────────────────────────────────
   const admin = createSupabaseAdminClient();
+  try {
+    await assertChannelNotOwnedElsewhere(admin, { platform: "instagram", externalId: igUserId, orgId });
+  } catch (err) {
+    return redirectBack(req, orgId, "error", (err as Error).message);
+  }
   const encrypted = bufferToPgBytea(encryptSecret(accessToken));
   const { error: upErr } = await admin.from("channels").upsert(
     {
