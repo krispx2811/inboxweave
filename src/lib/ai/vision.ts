@@ -1,4 +1,5 @@
 import "server-only";
+import { DEFAULT_MODEL, chatRequestBody, supportsVision } from "./models";
 import { getOpenAIKeyForOrg, getAiSettings } from "./openai";
 
 /**
@@ -12,7 +13,7 @@ export async function describeImage(params: {
 }): Promise<string> {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const settings = await getAiSettings(params.orgId);
-  const visionModel = settings.model.includes("4o") ? settings.model : "gpt-4o-mini";
+  const visionModel = supportsVision(settings.model) ? settings.model : DEFAULT_MODEL;
 
   const content: Array<Record<string, unknown>> = [
     { type: "image_url", image_url: { url: params.imageUrl, detail: "low" } },
@@ -27,7 +28,7 @@ export async function describeImage(params: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
+    body: JSON.stringify(chatRequestBody({
       model: visionModel,
       max_tokens: 300,
       messages: [
@@ -38,7 +39,7 @@ export async function describeImage(params: {
         },
         { role: "user", content },
       ],
-    }),
+    })),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`OpenAI vision ${res.status}: ${text.slice(0, 200)}`);

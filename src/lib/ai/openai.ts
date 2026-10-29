@@ -1,16 +1,8 @@
 import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { DEFAULT_MODEL, chatRequestBody, modelPricing } from "./models";
 import { redactUnsupportedAmounts, supportedAmounts } from "./price-guard";
-
-// GPT-4o-mini pricing per 1M tokens (USD).
-const PRICING: Record<string, { prompt: number; completion: number }> = {
-  "gpt-4o-mini": { prompt: 0.15, completion: 0.6 },
-  "gpt-4o": { prompt: 5.0, completion: 15.0 },
-  "gpt-4.1-mini": { prompt: 0.4, completion: 1.6 },
-  "gpt-4.1": { prompt: 2.0, completion: 8.0 },
-  "gpt-4.1-nano": { prompt: 0.1, completion: 0.4 },
-};
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -61,7 +53,7 @@ export async function getAiSettings(orgId: string): Promise<AiSettings> {
     data ?? {
       system_prompt:
         "You are a helpful customer support assistant. Be concise, friendly, and accurate.",
-      model: "gpt-4o-mini",
+      model: DEFAULT_MODEL,
       // Default to 0 to prevent hallucinating numbers/contact info. Orgs can
       // raise this per-org if they want more creative replies.
       temperature: 0,
@@ -114,12 +106,7 @@ async function chatCompletion(params: {
       Authorization: `Bearer ${params.apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: params.model,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-      messages: params.messages,
-    }),
+    body: JSON.stringify(chatRequestBody(params)),
   });
   const text = await res.text();
   if (!res.ok) {
@@ -136,7 +123,7 @@ async function logUsage(params: {
   completionTokens: number;
 }) {
   const total = params.promptTokens + params.completionTokens;
-  const rate = PRICING[params.model] ?? PRICING["gpt-4o-mini"]!;
+  const rate = modelPricing(params.model);
   const cost =
     (params.promptTokens * rate.prompt + params.completionTokens * rate.completion) / 1_000_000;
   const admin = createSupabaseAdminClient();
@@ -244,7 +231,7 @@ export async function generateReply(params: {
     "- Copy each digit exactly, including leading zeros and all 8+ digits of local numbers. Do not abbreviate.\n" +
     "- If you find yourself unsure whether a number is complete, choose to NOT provide it rather than provide a wrong one.";
 
-  const model = settings.model || "gpt-4o-mini";
+  const model = settings.model || DEFAULT_MODEL;
   const result = await chatCompletion({
     apiKey,
     model,
@@ -286,7 +273,7 @@ export async function detectLanguage(orgId: string, text: string): Promise<strin
   const apiKey = await getOpenAIKeyForOrg(orgId);
   const result = await chatCompletion({
     apiKey,
-    model: "gpt-4o-mini",
+    model: DEFAULT_MODEL,
     temperature: 0,
     max_tokens: 10,
     messages: [
@@ -333,7 +320,7 @@ export async function rawChatCompletion(params: {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const result = await chatCompletion({
     apiKey,
-    model: params.model ?? "gpt-4o-mini",
+    model: params.model ?? DEFAULT_MODEL,
     temperature: params.temperature,
     max_tokens: params.max_tokens,
     messages: params.messages,

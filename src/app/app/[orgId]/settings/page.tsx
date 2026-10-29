@@ -6,6 +6,7 @@ import {
   removeOpenAIAdminKey,
 } from "./actions";
 import Link from "next/link";
+import { CHAT_MODELS, DEFAULT_MODEL } from "@/lib/ai/models";
 import { IconSparkle, IconShield, IconFacebook, IconGlobe, IconBolt } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +48,7 @@ export default async function SettingsPage({
           </div>
           <div>
             <h2 className="font-semibold">AI persona</h2>
-            <p className="text-xs text-slate-500">Model: {settings?.model ?? "gpt-4o-mini"}</p>
+            <p className="text-xs text-slate-500">Model: {settings?.model ?? DEFAULT_MODEL}</p>
           </div>
         </div>
         <form action={updateAiSettings} className="space-y-4">
@@ -65,12 +66,13 @@ export default async function SettingsPage({
           </div>
           <div className="max-w-[300px]">
             <label className="label" htmlFor="model">Model</label>
-            <select id="model" name="model" className="input" defaultValue={settings?.model ?? "gpt-4o-mini"}>
-              <option value="gpt-4o-mini">GPT-4o Mini (fastest, cheapest)</option>
-              <option value="gpt-4o">GPT-4o (balanced)</option>
-              <option value="gpt-4.1-mini">GPT-4.1 Mini (newest, fast)</option>
-              <option value="gpt-4.1">GPT-4.1 (newest, most capable)</option>
-              <option value="gpt-4.1-nano">GPT-4.1 Nano (ultra-cheap)</option>
+            <select id="model" name="model" className="input" defaultValue={settings?.model ?? DEFAULT_MODEL}>
+              {CHAT_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                  {m.retiring ? " (being retired by OpenAI)" : ""}
+                </option>
+              ))}
             </select>
           </div>
           <div className="max-w-[200px]">
@@ -87,7 +89,7 @@ export default async function SettingsPage({
               className="input"
               defaultValue={settings?.temperature ?? 0.3}
             />
-            <p className="mt-1 text-[10px] text-slate-400">Lower = more focused, higher = more creative</p>
+            <p className="mt-1 text-[10px] text-slate-400">Lower = more focused, higher = more creative. Ignored by GPT-5 models.</p>
           </div>
           <button className="btn" type="submit">Save persona</button>
         </form>
