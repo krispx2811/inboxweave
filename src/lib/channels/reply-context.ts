@@ -3,6 +3,8 @@ import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { rawChatCompletion, type ChatTurn } from "@/lib/ai/openai";
 import { retrieveContext } from "@/lib/ai/rag";
 import { getContactMemory } from "@/lib/ai/contact-memory";
+import { getLiveOffers } from "@/lib/ai/offers";
+import type { LiveOffer } from "@/lib/ai/offer-format";
 import { stripAnyFooter } from "./commands";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -14,6 +16,7 @@ export interface ReplyContext {
   retrievedContext: string[];
   contactMemory: string[];
   priorSummary?: string;
+  offers: LiveOffer[];
 }
 
 const KEEP_RECENT = 20;
@@ -21,7 +24,7 @@ const KEEP_RECENT = 20;
 /**
  * Everything the reply needs besides the model call itself: the burst-unified
  * user message, trimmed history, knowledge-base retrieval, past-conversation
- * memory and the long-thread summary. Built from the conversation as it is
+ * memory, the long-thread summary and the offers running now. Built from the conversation as it is
  * now, so the inbound handler can start it during the burst debounce and only
  * rebuild it if the thread changed in the meantime.
  */
@@ -108,7 +111,7 @@ export async function prepareReplyContext(params: {
           .slice(0, 1500)
       : userMessage;
 
-  const [retrievedContext, contactMemory, priorSummary] = await Promise.all([
+  const [retrievedContext, contactMemory, priorSummary, offers] = await Promise.all([
     retrieveContext(orgId, retrievalQuery).catch(() => [] as string[]),
     getContactMemory(
       orgId,
@@ -118,6 +121,7 @@ export async function prepareReplyContext(params: {
       params.conversationCreatedAt,
     ).catch(() => [] as string[]),
     priorSummaryPromise,
+    getLiveOffers(orgId),
   ]);
 
   return {
@@ -126,5 +130,6 @@ export async function prepareReplyContext(params: {
     retrievedContext,
     contactMemory,
     priorSummary: priorSummary || undefined,
+    offers,
   };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { embedText, rawChatCompletion } from "./openai";
+import { keywordQuery } from "./keyword-query";
 
 const NON_LATIN =
   /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿一-鿿぀-ヿЀ-ӿ֐-׿]/;
@@ -48,7 +49,7 @@ export async function retrieveContext(orgId: string, query: string, limit = 8): 
   const { data, error } = await admin.rpc("match_knowledge_chunks_hybrid", {
     p_org_id: orgId,
     p_query: embedding,
-    p_query_text: expanded,
+    p_query_text: keywordQuery(expanded),
     p_limit: limit,
   });
 

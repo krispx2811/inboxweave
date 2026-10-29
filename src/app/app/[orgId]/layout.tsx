@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { IconInbox, IconChannels, IconKnowledge, IconSettings, IconArrowLeft, IconChart, IconUser, IconBolt } from "@/components/icons";
+import { IconInbox, IconChannels, IconKnowledge, IconSettings, IconArrowLeft, IconChart, IconUser, IconBolt, IconTag } from "@/components/icons";
 import { LogoIcon } from "@/components/Logo";
 import { OnboardingTooltip } from "@/components/OnboardingTooltip";
 
@@ -24,6 +24,7 @@ export default async function OrgLayout({
     { href: `/app/${orgId}/replies`, label: "Canned Replies", icon: IconBolt },
     { href: `/app/${orgId}/channels`, label: "Channels", icon: IconChannels },
     { href: `/app/${orgId}/knowledge`, label: "Knowledge", icon: IconKnowledge },
+    { href: `/app/${orgId}/offers`, label: "Offers", icon: IconTag },
     { href: `/app/${orgId}/settings`, label: "Settings", icon: IconSettings },
   ];
 
