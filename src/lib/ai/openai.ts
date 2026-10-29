@@ -1,16 +1,14 @@
 import "server-only";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  BACKGROUND_MODEL,
+  DEFAULT_MODEL,
+  chatRequestBody,
+  modelFallbackChain,
+  modelPricing,
+} from "./models";
 import { redactUnsupportedAmounts, supportedAmounts } from "./price-guard";
-
-// GPT-4o-mini pricing per 1M tokens (USD).
-const PRICING: Record<string, { prompt: number; completion: number }> = {
-  "gpt-4o-mini": { prompt: 0.15, completion: 0.6 },
-  "gpt-4o": { prompt: 5.0, completion: 15.0 },
-  "gpt-4.1-mini": { prompt: 0.4, completion: 1.6 },
-  "gpt-4.1": { prompt: 2.0, completion: 8.0 },
-  "gpt-4.1-nano": { prompt: 0.1, completion: 0.4 },
-};
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 
@@ -61,7 +59,7 @@ export async function getAiSettings(orgId: string): Promise<AiSettings> {
     data ?? {
       system_prompt:
         "You are a helpful customer support assistant. Be concise, friendly, and accurate.",
-      model: "gpt-4o-mini",
+      model: DEFAULT_MODEL,
       // Default to 0 to prevent hallucinating numbers/contact info. Orgs can
       // raise this per-org if they want more creative replies.
       temperature: 0,
@@ -81,7 +79,12 @@ export async function isOrgAiEnabled(orgId: string): Promise<boolean> {
     .select("ai_enabled")
     .eq("org_id", orgId)
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Fail open: a missing column (migration 0017 not applied) or a transient
+    // read error must not silence the AI for every customer.
+    console.error(`[ai] isOrgAiEnabled failed for ${orgId}: ${error.message}`);
+    return true;
+  }
   // Treat a missing row or a null column as "on".
   return data?.ai_enabled !== false;
 }
@@ -95,37 +98,42 @@ export interface ChatTurn {
 interface ChatCompletionResult {
   choices: Array<{ message?: { content?: string } }>;
   usage?: { prompt_tokens: number; completion_tokens: number };
+  /** The model that actually answered (may be a fallback). */
+  usedModel: string;
 }
 
 /**
  * Low-level chat completion via direct fetch (no SDK).
- * Throws with the full error body on non-2xx responses.
+ * A 400/404 (model shut down, not available on this key, or a parameter the
+ * model rejects) retries with the next model in the fallback chain; any other
+ * failure, or the last model failing, throws with the error body.
  */
-async function chatCompletion(params: {
+export async function chatCompletion(params: {
   apiKey: string;
   model: string;
   temperature?: number;
   max_tokens?: number;
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{ role: string; content: unknown }>;
 }): Promise<ChatCompletionResult> {
-  const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: params.model,
-      temperature: params.temperature,
-      max_tokens: params.max_tokens,
-      messages: params.messages,
-    }),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`OpenAI chat ${res.status}: ${text.slice(0, 300)}`);
+  const chain = modelFallbackChain(params.model);
+  for (const [i, model] of chain.entries()) {
+    const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(chatRequestBody({ ...params, model })),
+    });
+    const text = await res.text();
+    if (res.ok) return { ...(JSON.parse(text) as Omit<ChatCompletionResult, "usedModel">), usedModel: model };
+    const retryable = res.status === 400 || res.status === 404;
+    if (!retryable || i === chain.length - 1) {
+      throw new Error(`OpenAI chat ${res.status} (${model}): ${text.slice(0, 300)}`);
+    }
+    console.warn(`[ai] ${model} rejected (${res.status}), falling back: ${text.slice(0, 200)}`);
   }
-  return JSON.parse(text) as ChatCompletionResult;
+  throw new Error("unreachable");
 }
 
 async function logUsage(params: {
@@ -136,7 +144,7 @@ async function logUsage(params: {
   completionTokens: number;
 }) {
   const total = params.promptTokens + params.completionTokens;
-  const rate = PRICING[params.model] ?? PRICING["gpt-4o-mini"]!;
+  const rate = modelPricing(params.model);
   const cost =
     (params.promptTokens * rate.prompt + params.completionTokens * rate.completion) / 1_000_000;
   const admin = createSupabaseAdminClient();
@@ -244,7 +252,7 @@ export async function generateReply(params: {
     "- Copy each digit exactly, including leading zeros and all 8+ digits of local numbers. Do not abbreviate.\n" +
     "- If you find yourself unsure whether a number is complete, choose to NOT provide it rather than provide a wrong one.";
 
-  const model = settings.model || "gpt-4o-mini";
+  const model = settings.model || DEFAULT_MODEL;
   const result = await chatCompletion({
     apiKey,
     model,
@@ -272,7 +280,7 @@ export async function generateReply(params: {
     logUsage({
       orgId: params.orgId,
       conversationId: params.conversationId,
-      model,
+      model: result.usedModel,
       promptTokens: result.usage.prompt_tokens,
       completionTokens: result.usage.completion_tokens,
     }).catch(() => {});
@@ -286,7 +294,7 @@ export async function detectLanguage(orgId: string, text: string): Promise<strin
   const apiKey = await getOpenAIKeyForOrg(orgId);
   const result = await chatCompletion({
     apiKey,
-    model: "gpt-4o-mini",
+    model: BACKGROUND_MODEL,
     temperature: 0,
     max_tokens: 10,
     messages: [
@@ -333,7 +341,7 @@ export async function rawChatCompletion(params: {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const result = await chatCompletion({
     apiKey,
-    model: params.model ?? "gpt-4o-mini",
+    model: params.model ?? BACKGROUND_MODEL,
     temperature: params.temperature,
     max_tokens: params.max_tokens,
     messages: params.messages,

@@ -109,17 +109,20 @@ async function renderInbox({
   const members = membersRes.data ?? [];
   const suggestions = ((suggestRes.data?.suggestions as Array<{ text: string }>) ?? []).map((s) => s.text);
 
-  // Member emails for assignment. Defensive: if the service role ever loses
-  // auth admin access, don't let it crash the whole inbox render.
+  // Member emails for assignment. Looks up only this org's members (listing
+  // every user on the platform was slow and capped at 200). Defensive: if the
+  // service role ever loses auth admin access, don't crash the inbox render.
   const emailMap = new Map<string, string>();
-  if (members.length > 0) {
-    try {
-      const { data: users } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-      for (const u of users?.users ?? []) emailMap.set(u.id, u.email ?? u.id);
-    } catch (err) {
-      console.error("[inbox] listUsers failed (non-fatal)", err);
-    }
-  }
+  await Promise.all(
+    members.map(async (m) => {
+      try {
+        const { data } = await admin.auth.admin.getUserById(m.user_id as string);
+        if (data?.user) emailMap.set(data.user.id, data.user.email ?? data.user.id);
+      } catch (err) {
+        console.error("[inbox] getUserById failed (non-fatal)", err);
+      }
+    }),
+  );
 
   // All tags in use.
   const allTags = [...new Set((conversations ?? []).flatMap((c) => (c.tags as string[]) ?? []))];

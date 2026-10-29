@@ -1,9 +1,10 @@
 import "server-only";
-import { getOpenAIKeyForOrg, getAiSettings } from "./openai";
+import { DEFAULT_MODEL, supportsVision } from "./models";
+import { chatCompletion, getOpenAIKeyForOrg, getAiSettings } from "./openai";
 
 /**
- * Analyze an image using GPT-4o's vision capabilities.
- * Uses raw fetch (no SDK) to avoid stray OPENAI_* env vars on the host.
+ * Analyze an image with the org's chosen model (all offered models accept images).
+ * Goes through chatCompletion, so a rejected model falls back like replies do.
  */
 export async function describeImage(params: {
   orgId: string;
@@ -12,7 +13,7 @@ export async function describeImage(params: {
 }): Promise<string> {
   const apiKey = await getOpenAIKeyForOrg(params.orgId);
   const settings = await getAiSettings(params.orgId);
-  const visionModel = settings.model.includes("4o") ? settings.model : "gpt-4o-mini";
+  const visionModel = supportsVision(settings.model) ? settings.model : DEFAULT_MODEL;
 
   const content: Array<Record<string, unknown>> = [
     { type: "image_url", image_url: { url: params.imageUrl, detail: "low" } },
@@ -21,27 +22,18 @@ export async function describeImage(params: {
     content.push({ type: "text", text: `Customer's message: ${params.contextHint}` });
   }
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: visionModel,
-      max_tokens: 300,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a customer support assistant. A customer sent an image. Describe what you see concisely. If it appears to be a screenshot of an error, product issue, or receipt, extract the relevant details.",
-        },
-        { role: "user", content },
-      ],
-    }),
+  const json = await chatCompletion({
+    apiKey,
+    model: visionModel,
+    max_tokens: 300,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a customer support assistant. A customer sent an image. Describe what you see concisely. If it appears to be a screenshot of an error, product issue, or receipt, extract the relevant details.",
+      },
+      { role: "user", content },
+    ],
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`OpenAI vision ${res.status}: ${text.slice(0, 200)}`);
-  const json = JSON.parse(text) as { choices: Array<{ message?: { content?: string } }> };
   return json.choices[0]?.message?.content?.trim() ?? "[Could not analyze image]";
 }

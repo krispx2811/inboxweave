@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { DEFAULT_MODEL } from "@/lib/ai/models";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
@@ -9,7 +10,7 @@ import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 const PromptSchema = z.object({
   orgId: z.string().uuid(),
   system_prompt: z.string().min(1).max(8000),
-  model: z.string().min(1).max(50).default("gpt-4o-mini"),
+  model: z.string().min(1).max(50).default(DEFAULT_MODEL),
   temperature: z.coerce.number().min(0).max(2),
 });
 
@@ -17,7 +18,7 @@ export async function updateAiSettings(formData: FormData) {
   const parsed = PromptSchema.parse({
     orgId: formData.get("orgId"),
     system_prompt: formData.get("system_prompt"),
-    model: formData.get("model") ?? "gpt-4o-mini",
+    model: formData.get("model") ?? DEFAULT_MODEL,
     temperature: formData.get("temperature"),
   });
   const ctx = await requireOrgMember(parsed.orgId);

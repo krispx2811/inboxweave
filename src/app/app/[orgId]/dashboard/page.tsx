@@ -58,10 +58,17 @@ export default async function DashboardPage({
   const days = parseInt(daysParam ?? "14", 10) || 14;
   const admin = createSupabaseAdminClient();
 
-  const { data: raw } = await admin.rpc("org_analytics", {
-    p_org_id: orgId,
-    p_days: days,
-  });
+  const [{ data: raw }, { data: recentUsage }, { data: aiSettings }] = await Promise.all([
+    admin.rpc("org_analytics", { p_org_id: orgId, p_days: days }),
+    admin
+      .from("usage_logs")
+      .select("id, created_at, model, total_tokens, cost_usd")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(5),
+    // Org-wide AI master switch state. Defaults to on when no settings row exists.
+    admin.from("ai_settings").select("ai_enabled").eq("org_id", orgId).maybeSingle(),
+  ]);
 
   const fallback: Analytics = {
     messages: { total_messages: 0, inbound: 0, outbound: 0, ai_replies: 0, human_replies: 0, contact_messages: 0 },
@@ -79,19 +86,6 @@ export default async function DashboardPage({
     usage: r.usage ?? fallback.usage,
   };
 
-  const { data: recentUsage } = await admin
-    .from("usage_logs")
-    .select("id, created_at, model, total_tokens, cost_usd")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  // Org-wide AI master switch state. Defaults to on when no settings row exists.
-  const { data: aiSettings } = await admin
-    .from("ai_settings")
-    .select("ai_enabled")
-    .eq("org_id", orgId)
-    .maybeSingle();
   const aiEnabled = aiSettings?.ai_enabled !== false;
 
   const totalReplies = a.messages.ai_replies + a.messages.human_replies;

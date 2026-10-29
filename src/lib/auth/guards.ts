@@ -1,15 +1,18 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-export async function getSessionUser() {
+// Memoised per request: the org layout and its page both guard, and each
+// getUser() is a network round trip to Supabase Auth.
+export const getSessionUser = cache(async () => {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
 
 export async function requireUser() {
   const user = await getSessionUser();
@@ -35,7 +38,7 @@ export interface OrgContext {
   role: "owner" | "agent";
 }
 
-export async function requireOrgMember(orgId: string): Promise<OrgContext> {
+export const requireOrgMember = cache(async (orgId: string): Promise<OrgContext> => {
   const user = await requireUser();
   const admin = createSupabaseAdminClient();
   const { data } = await admin
@@ -46,4 +49,4 @@ export async function requireOrgMember(orgId: string): Promise<OrgContext> {
     .maybeSingle();
   if (!data) redirect("/");
   return { userId: user.id, orgId, role: data.role as "owner" | "agent" };
-}
+});

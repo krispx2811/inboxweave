@@ -37,17 +37,17 @@ export default async function ContactsPage({
 
   const { data: contacts } = await query;
 
-  // Get message counts per conversation.
+  // Get message counts per conversation (in parallel, not one at a time).
   const msgCounts = new Map<string, number>();
-  if (contacts && contacts.length > 0) {
-    for (const c of contacts.slice(0, 50)) {
+  await Promise.all(
+    (contacts ?? []).slice(0, 50).map(async (c) => {
       const { count } = await admin
         .from("messages")
         .select("id", { count: "exact", head: true })
         .eq("conversation_id", c.id);
       msgCounts.set(c.id as string, count ?? 0);
-    }
-  }
+    }),
+  );
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,12 +35,16 @@ export async function middleware(request: NextRequest) {
   );
 
   // Refresh auth cookies so Server Components can read a fresh session.
-  await supabase.auth.getUser();
+  // Logged-out visitors have nothing to refresh, so skip the Auth round trip.
+  const hasSession = request.cookies.getAll().some((c) => c.name.startsWith("sb-"));
+  if (hasSession) await supabase.auth.getUser();
 
   return response;
 }
 
 export const config = {
-  // Skip static assets and webhook routes (webhooks have their own auth).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/webhooks).*)"],
+  // Skip static assets, public files and webhook routes (webhooks have their own auth).
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.svg|manifest.json|sw.js|robots.txt|sitemap.xml|api/webhooks).*)",
+  ],
 };

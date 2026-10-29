@@ -9,7 +9,7 @@ export interface Classification {
 /**
  * Lightweight topic + priority classification. Runs in the background on
  * every inbound message so the inbox can auto-tag and prioritize without
- * the agent triaging manually. Uses gpt-4o-mini for cost; falls back to
+ * the agent triaging manually. Uses the cheap background model; falls back to
  * 'other/normal' on any error.
  */
 export async function classifyConversation(
@@ -20,7 +20,6 @@ export async function classifyConversation(
 
   const raw = await rawChatCompletion({
     orgId,
-    model: "gpt-4o-mini",
     temperature: 0,
     max_tokens: 60,
     messages: [
