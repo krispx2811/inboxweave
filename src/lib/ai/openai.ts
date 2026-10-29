@@ -236,10 +236,12 @@ export async function generateReply(params: {
   contactMemory?: string[];
   priorSummary?: string;
   replyInLanguage?: string;
+  /** Already-loaded AI settings, so the caller can fetch them in parallel. */
+  settings?: AiSettings;
 }): Promise<string> {
   const [apiKey, settings] = await Promise.all([
     getOpenAIKeyForOrg(params.orgId),
-    getAiSettings(params.orgId),
+    params.settings ?? getAiSettings(params.orgId),
   ]);
 
   // Amounts the knowledge base currently supports. With no retrieved context
@@ -327,14 +329,17 @@ export async function generateReply(params: {
     messages: [
       {
         role: "system",
+        // Unchanging parts first: OpenAI caches a repeated prompt prefix
+        // automatically, which cuts time-to-first-token and cost on every
+        // reply for the same org. Per-message parts follow.
         content:
           settings.system_prompt +
+          contextInstruction +
+          antiHallucination +
           memoryBlock +
           summaryBlock +
           contextBlock +
           languageInstruction +
-          contextInstruction +
-          antiHallucination +
           // Last, so it sits closest to the conversation it governs.
           (params.retrievedContext.length > 0 ? precedence : ""),
       },

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendOutbound } from "@/lib/channels/router";
 
@@ -13,8 +13,8 @@ export const runtime = "nodejs";
  * WhatsApp/Messenger typing indicators are sent via the platform API.
  */
 export async function POST(req: NextRequest) {
-  const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Fired repeatedly while an agent types, so verify the session locally.
+  const user = await getSessionUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const body = (await req.json()) as { orgId?: string; conversationId?: string };

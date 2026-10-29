@@ -1,20 +1,18 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { ChannelPlatform } from "@/lib/supabase/types";
-import { generateReply, detectLanguage, isOrgAiEnabled } from "@/lib/ai/openai";
-import { retrieveContext } from "@/lib/ai/rag";
+import { generateReply, detectLanguage, getAiSettings, isOrgAiEnabled } from "@/lib/ai/openai";
 import { analyzeSentiment } from "@/lib/ai/analysis";
 import { classifyConversation } from "@/lib/ai/classify";
-import { getContactMemory } from "@/lib/ai/contact-memory";
 import { describeImage } from "@/lib/ai/vision";
 import { transcribeAudio } from "@/lib/ai/transcribe";
 import { fetchIgContactProfile } from "./ig-profile";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
 import { refreshIgTokenIfStale } from "./ig-token-refresh";
-import { rawChatCompletion } from "@/lib/ai/openai";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { OutsideWindowError, sendOutbound, sendTypingIndicatorFast } from "./router";
 import { getCachedChannel, setCachedChannel } from "./cache";
+import { prepareReplyContext } from "./reply-context";
 import {
   aiFooter,
   detectStopStart,
@@ -88,6 +86,24 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // Org-wide AI master switch (the dashboard kill switch). Read once and reused
   // for the gate below; also cached so the next inbound's fast-path typing
   // indicator can be suppressed without a DB round-trip.
+  // Runs alongside the conversation upsert below (Promise.resolve starts the
+  // query now); awaited here because the typing indicator depends on it.
+  const convoPromise = Promise.resolve(
+    admin
+      .from("conversations")
+      .upsert(
+        {
+          org_id: orgId,
+          channel_id: channel.id,
+          contact_external_id: msg.contactExternalId,
+          contact_name: msg.contactName ?? null,
+          last_message_at: new Date().toISOString(),
+        },
+        { onConflict: "channel_id,contact_external_id" },
+      )
+      .select("id, ai_enabled, language, contact_username, contact_profile_fetched_at, created_at")
+      .single(),
+  );
   const orgAiEnabled = await isOrgAiEnabled(orgId);
 
   // Refresh the cache with the fresh row for the next inbound.
@@ -121,20 +137,7 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // inbox is more important than the auto-reply; AI sends are gated below.
 
   // 2. Upsert conversation.
-  const { data: convo, error: convErr } = await admin
-    .from("conversations")
-    .upsert(
-      {
-        org_id: orgId,
-        channel_id: channel.id,
-        contact_external_id: msg.contactExternalId,
-        contact_name: msg.contactName ?? null,
-        last_message_at: new Date().toISOString(),
-      },
-      { onConflict: "channel_id,contact_external_id" },
-    )
-    .select("id, ai_enabled, language, contact_username, contact_profile_fetched_at, created_at")
-    .single();
+  const { data: convo, error: convErr } = await convoPromise;
   if (convErr || !convo) throw new Error(convErr?.message ?? "Failed to upsert conversation");
 
   // 2a. Enrich / refresh IG contact profile. Fetches on first sight AND
@@ -400,6 +403,26 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     return;
   }
 
+  // Start building the reply context (history, knowledge-base retrieval,
+  // contact memory, long-thread summary) and the AI settings now, so they run
+  // during the burst debounce instead of after it. If the thread changes while
+  // we wait, it's rebuilt below.
+  const prepare = () =>
+    prepareReplyContext({
+      admin,
+      orgId,
+      channelId: channel.id as string,
+      contactExternalId: msg.contactExternalId,
+      conversationId: convo.id as string,
+      conversationCreatedAt: convo.created_at as string | undefined,
+      fallbackText: msg.text,
+    });
+  let contextPromise = prepare();
+  const settingsPromise = getAiSettings(orgId);
+  // Handled when awaited below; don't surface as unhandled while we wait.
+  contextPromise.catch(() => {});
+  settingsPromise.catch(() => {});
+
   // Debounce: customers often send multiple quick messages in a burst
   // ("hi", "im interested in lasik", "how much?"). Wait 1.5s, then check if
   // another inbound arrived. If it did, that handler will take over — we
@@ -408,28 +431,26 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
   // retry timeout while still catching most bursts.
   await new Promise((r) => setTimeout(r, 1500));
 
-  const { data: newestIn } = await admin
-    .from("messages")
-    .select("id, created_at")
-    .eq("conversation_id", convo.id)
-    .eq("direction", "in")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (newestIn && newestIn.id !== insertedMsg.id) {
-    // A newer inbound arrived during our debounce — yield to its handler.
-    return;
-  }
-
-  // Re-check both kill switches after the debounce — the owner may have typed
-  // "stop" in the inbox composer, toggled the per-conversation Pause AI button,
-  // or flipped the dashboard master switch while we were waiting. Also catches
-  // sentiment-based auto-escalation.
-  const [{ data: freshConvo }, orgStillEnabled] = await Promise.all([
+  // After the debounce, in one round trip: the newest message in the thread,
+  // and both kill switches — the owner may have typed "stop" in the inbox
+  // composer, toggled the per-conversation Pause AI button, or flipped the
+  // dashboard master switch while we were waiting.
+  const [{ data: newest }, { data: freshConvo }, orgStillEnabled] = await Promise.all([
+    admin
+      .from("messages")
+      .select("id, direction")
+      .eq("conversation_id", convo.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     admin.from("conversations").select("ai_enabled").eq("id", convo.id).maybeSingle(),
     isOrgAiEnabled(orgId),
   ]);
+
+  if (newest && newest.id !== insertedMsg.id && newest.direction === "in") {
+    // A newer inbound arrived during our debounce — yield to its handler.
+    return;
+  }
   if (!freshConvo?.ai_enabled || !orgStillEnabled) {
     await admin.from("audit_logs").insert({
       org_id: orgId,
@@ -441,122 +462,28 @@ export async function handleInbound(msg: NormalizedInbound): Promise<void> {
     });
     return;
   }
-
-  // (Previously we re-fired the typing indicator here to keep the bubble
-  // alive past Meta's auto-clear. Debounce is now 1.5s + total reply
-  // budget stays well under the auto-clear window, so a single early fire
-  // is sufficient.)
-
-  // Build the unified user message: all IN messages since the last OUT.
-  // This way a burst of ["hi", "for lasik", "how much?"] is answered as
-  // one coherent reply instead of three disjoint ones.
-  // Fetch more than 24 so we can detect long threads and summarize the older
-  // portion into a "prior summary" system note — keeps context without blowing
-  // up token count. Newest first; the burst is read off the top of it.
-  const { data: history } = await admin
-    .from("messages")
-    .select("direction, sender, content, created_at")
-    .eq("conversation_id", convo.id)
-    .order("created_at", { ascending: false })
-    .limit(48);
-  const burst: string[] = [];
-  for (const m of (history ?? []).slice(0, 10)) {
-    if (m.direction === "out") break;
-    if (m.direction === "in" && m.content) burst.unshift(m.content as string);
-  }
-  const unifiedUserMessage = burst.length > 1 ? burst.join("\n") : msg.text;
+  // A reply (agent or AI) landed while we waited: rebuild so the context
+  // includes it.
+  if (newest && newest.id !== insertedMsg.id) contextPromise = prepare();
 
   try {
-    const allTurns = (history ?? [])
-      .slice()
-      .reverse()
-      .slice(0, -1)
-      .map((m) => ({
-        role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
-        content:
-          m.direction === "in"
-            ? (m.content as string)
-            : stripFooter(m.content as string),
-      }));
-
-    // Rolling summary: if the thread is long, keep the last 20 turns
-    // verbatim and condense everything older into a single synthetic
-    // system-role message. Prevents unbounded token growth on 100+
-    // message conversations.
-    // The summary is started here but awaited together with retrieval below,
-    // so a long thread doesn't add a whole extra model call to the reply time.
-    const KEEP_RECENT = 20;
-    let priorSummaryPromise: Promise<string> = Promise.resolve("");
-    let turns = allTurns;
-    if (allTurns.length > KEEP_RECENT + 6) {
-      const toSummarize = allTurns.slice(0, allTurns.length - KEEP_RECENT);
-      const transcript = toSummarize
-        .map((t) => `${t.role}: ${t.content}`)
-        .join("\n")
-        .slice(0, 6000);
-      priorSummaryPromise = rawChatCompletion({
-        orgId,
-        temperature: 0,
-        max_tokens: 220,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Summarize this partial customer-support conversation in 3-4 sentences. Focus on what the customer wants, what's already been answered, and any unresolved points. Keep it neutral — no analysis, no headers.",
-          },
-          { role: "user", content: transcript },
-        ],
-      }).catch(() => "");
-      turns = allTurns.slice(-KEEP_RECENT);
-    }
-
-    // Trim the last N burst messages off the history tail since we're
-    // sending them as the current user_message instead.
-    const turnsWithoutBurst =
-      burst.length > 1 ? turns.slice(0, -(burst.length - 1)) : turns;
-
-    // Build a context-aware RAG query from the last few turns so follow-ups
-    // like "its for lasik" (after "what is the consultation?") retrieve the
-    // right chunks. We prioritise the current (possibly burst-unified)
-    // message but include the preceding exchange for short/vague follow-ups.
-    const recentText = turnsWithoutBurst
-      .slice(-4)
-      .map((t) => t.content)
-      .concat(unifiedUserMessage)
-      .join(" \n ")
-      .slice(0, 1500);
-
     let step = "retrieveContext";
     let reply: string;
     let platformMessageId: string | undefined;
     try {
-      const retrievalQuery =
-        unifiedUserMessage.trim().length < 25 && turnsWithoutBurst.length > 0
-          ? recentText
-          : unifiedUserMessage;
-      // Fetch RAG context, past-conversation memory and the long-thread
-      // summary in parallel.
-      const [context, contactMemory, priorSummary] = await Promise.all([
-        retrieveContext(orgId, retrievalQuery).catch(() => [] as string[]),
-        getContactMemory(
-          orgId,
-          channel.id as string,
-          msg.contactExternalId,
-          convo.id as string,
-          convo.created_at as string | undefined,
-        ).catch(() => [] as string[]),
-        priorSummaryPromise,
-      ]);
+      const [ctx, settings] = await Promise.all([contextPromise, settingsPromise]);
+      const unifiedUserMessage = ctx.userMessage;
       step = "generateReply";
       reply = await generateReply({
         orgId,
         conversationId: convo.id as string,
         userMessage: unifiedUserMessage,
-        history: turnsWithoutBurst,
-        retrievedContext: context,
-        contactMemory,
-        priorSummary: priorSummary || undefined,
+        history: ctx.history,
+        retrievedContext: ctx.retrievedContext,
+        contactMemory: ctx.contactMemory,
+        priorSummary: ctx.priorSummary,
         replyInLanguage: detectedLang ?? undefined,
+        settings,
       });
       if (!reply) return;
       // Defensive: strip any footer the model may have mimicked from prior
