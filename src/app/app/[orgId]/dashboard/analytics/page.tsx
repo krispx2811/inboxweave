@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { IconChart, IconClock, IconSparkle } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ function fmtDuration(seconds: number | null): string {
 
 export default async function AnalyticsPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: raw } = await admin.rpc("conversation_analytics", { p_org_id: orgId, p_days: 30 });
   const a = (raw ?? {}) as {

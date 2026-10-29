@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import {
   updateAiSettings,
   updateOpenAIKey,
@@ -17,6 +18,7 @@ export default async function SettingsPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const [{ data: settings }, { data: secrets }] = await Promise.all([
     admin

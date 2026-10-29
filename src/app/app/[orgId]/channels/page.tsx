@@ -1,4 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
+import { signState } from "@/lib/auth/oauth-state";
 import {
   connectWhatsApp,
   disconnectChannel,
@@ -36,6 +38,7 @@ export default async function ChannelsPage({
   searchParams: Promise<{ fb?: string; ig?: string; msg?: string }>;
 }) {
   const { orgId } = await params;
+  const ctx = await requireOrgMember(orgId);
   const { fb, ig, msg } = await searchParams;
   const admin = createSupabaseAdminClient();
   const [{ data: channels }, { data: metaSettings }] = await Promise.all([
@@ -60,8 +63,8 @@ export default async function ChannelsPage({
     (metaSettings?.ig_app_id as string | undefined) ??
     (metaSettings?.app_id as string | undefined) ??
     process.env.META_APP_ID;
-  const fbState = Buffer.from(JSON.stringify({ orgId, flow: "fb" })).toString("base64url");
-  const igState = Buffer.from(JSON.stringify({ orgId, flow: "ig" })).toString("base64url");
+  const fbState = signState({ orgId, uid: ctx.userId, flow: "fb" });
+  const igState = signState({ orgId, uid: ctx.userId, flow: "ig" });
 
   // Classic Facebook Login — for Messenger + Pages (requires Facebook Login product).
   const fbLoginUrl =

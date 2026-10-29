@@ -1,4 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
+import { escapePostgrestSearch } from "@/lib/search";
 import { IconUser, IconSearch } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ export default async function ContactsPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const { q } = await searchParams;
   const admin = createSupabaseAdminClient();
 
@@ -31,8 +34,9 @@ export default async function ContactsPage({
     .order("last_message_at", { ascending: false })
     .limit(200);
 
-  if (q) {
-    query = query.or(`contact_name.ilike.%${q}%,contact_external_id.ilike.%${q}%`);
+  const safeQ = q ? escapePostgrestSearch(q) : "";
+  if (safeQ) {
+    query = query.or(`contact_name.ilike.%${safeQ}%,contact_external_id.ilike.%${safeQ}%`);
   }
 
   const { data: contacts } = await query;

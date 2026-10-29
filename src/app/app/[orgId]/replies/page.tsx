@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { createCannedReply, deleteCannedReply } from "./actions";
 import { IconBolt, IconPlus, IconTrash } from "@/components/icons";
 
@@ -10,6 +11,7 @@ export default async function CannedRepliesPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: replies } = await admin
     .from("canned_replies")

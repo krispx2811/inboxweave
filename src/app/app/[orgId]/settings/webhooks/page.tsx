@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { addWebhook, deleteWebhook } from "./actions";
 import { IconPlus, IconTrash, IconGlobe } from "@/components/icons";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function WebhooksPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: subs } = await admin
     .from("webhook_subscriptions")

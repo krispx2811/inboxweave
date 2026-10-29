@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import {
   IconChart,
   IconInbox,
@@ -54,6 +55,7 @@ export default async function DashboardPage({
   searchParams: Promise<{ days?: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const { days: daysParam } = await searchParams;
   const days = parseInt(daysParam ?? "14", 10) || 14;
   const admin = createSupabaseAdminClient();

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { deleteKnowledgeDoc, updateKnowledgeDoc } from "../actions";
 import { IconKnowledge, IconTrash } from "@/components/icons";
 import { SaveButton } from "./SaveButton";
@@ -25,6 +26,7 @@ export default async function KnowledgeDocPage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const { orgId, docId } = await params;
+  await requireOrgMember(orgId);
   const { saved } = await searchParams;
   const admin = createSupabaseAdminClient();
 

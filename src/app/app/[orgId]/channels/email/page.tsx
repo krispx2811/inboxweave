@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { saveEmailSettings } from "./actions";
 import { IconShield } from "@/components/icons";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EmailChannelPage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: settings } = await admin
     .from("email_settings")

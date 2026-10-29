@@ -5,6 +5,20 @@ import { z } from "zod";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
+import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
+
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+// The admin client bypasses RLS: a channel id from the form must be proven
+// to belong to the org the caller was checked against.
+async function assertChannelInOrg(admin: AdminClient, channelId: string, orgId: string) {
+  const { data } = await admin
+    .from("channels")
+    .select("org_id")
+    .eq("id", channelId)
+    .maybeSingle();
+  if (!data || data.org_id !== orgId) throw new Error("Channel not found");
+}
 
 const WhatsAppSchema = z.object({
   orgId: z.string().uuid(),
@@ -45,6 +59,11 @@ export async function connectWhatsApp(formData: FormData) {
   };
 
   const admin = createSupabaseAdminClient();
+  await assertChannelNotOwnedElsewhere(admin, {
+    platform: "whatsapp",
+    externalId: parsed.phoneNumberId,
+    orgId: parsed.orgId,
+  });
   const { error } = await admin.from("channels").upsert(
     {
       org_id: parsed.orgId,
@@ -117,10 +136,12 @@ export async function scanIgRequestsNow(formData: FormData) {
   const ctx = await requireOrgMember(parsed.orgId);
   if (ctx.role !== "owner") throw new Error("Only owners can scan for requests");
 
+  const admin = createSupabaseAdminClient();
+  await assertChannelInOrg(admin, parsed.channelId, parsed.orgId);
+
   const { acceptIgPendingRequests } = await import("@/lib/channels/ig-requests");
   const result = await acceptIgPendingRequests(parsed.channelId);
 
-  const admin = createSupabaseAdminClient();
   await admin.from("audit_logs").insert({
     org_id: parsed.orgId,
     user_id: ctx.userId,
@@ -151,6 +172,7 @@ export async function toggleAutoAcceptRequests(formData: FormData) {
   if (ctx.role !== "owner") throw new Error("Only owners can change channel settings");
 
   const admin = createSupabaseAdminClient();
+  await assertChannelInOrg(admin, parsed.channelId, parsed.orgId);
   await admin
     .from("channels")
     .update({ auto_accept_requests: parsed.enabled })

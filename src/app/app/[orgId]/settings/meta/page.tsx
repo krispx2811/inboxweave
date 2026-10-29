@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { saveFacebookCreds, saveInstagramCreds, saveVerifyToken } from "./actions";
 import { IconFacebook, IconInstagram } from "@/components/icons";
 
@@ -10,6 +11,7 @@ export default async function MetaSettingsPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
 
   interface MetaRow {
     ig_app_id: string | null;

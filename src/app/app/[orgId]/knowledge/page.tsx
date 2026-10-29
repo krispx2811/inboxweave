@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requireOrgMember } from "@/lib/auth/guards";
 import { deleteKnowledgeDoc, uploadKnowledgeDoc } from "./actions";
 import { IconUpload, IconKnowledge, IconTrash } from "@/components/icons";
 import { ConfirmForm } from "@/components/ConfirmForm";
@@ -22,6 +23,7 @@ export default async function KnowledgePage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
+  await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const { data: docs } = await admin
     .from("knowledge_documents")
