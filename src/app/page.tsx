@@ -8,70 +8,90 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
+const SITE = "https://inboxweave.com";
+
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "InboxWeave",
+  url: SITE,
+  logo: `${SITE}/icon.svg`,
+  areaServed: ["Oman", "GCC"],
+  description:
+    "InboxWeave is an AI customer messaging platform for businesses in Oman and the GCC. It answers WhatsApp, Instagram and Messenger messages in Arabic and English from the business's own knowledge base.",
+};
+
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   name: "InboxWeave",
+  url: SITE,
   applicationCategory: "BusinessApplication",
   operatingSystem: "Web",
+  inLanguage: ["en", "ar"],
   offers: {
     "@type": "Offer",
-    price: "300",
+    price: "30",
     priceCurrency: "OMR",
+    priceSpecification: {
+      "@type": "UnitPriceSpecification",
+      price: "30",
+      priceCurrency: "OMR",
+      billingDuration: "P1M",
+      unitText: "month",
+    },
+    description: "One plan with every feature and support included. No setup fee.",
   },
   description:
-    "AI-powered customer messaging platform — 300 OMR one-time setup. Connect WhatsApp, Instagram, and Messenger to one intelligent inbox with GPT-4o auto-replies.",
+    "AI customer messaging platform for WhatsApp, Instagram and Messenger. AI auto-replies in Arabic and English from your own knowledge base and current offers, with a shared team inbox. 30 OMR per month.",
   featureList: [
-    "AI auto-reply with GPT-4o",
+    "AI auto-replies in Arabic and English",
     "WhatsApp Business Cloud API",
     "Instagram DM automation",
     "Facebook Messenger integration",
-    "Knowledge base RAG",
-    "Sentiment analysis",
-    "Customer satisfaction tracking",
-    "Multi-language support",
-    "Team collaboration",
-    "Analytics dashboard",
+    "Answers from your own knowledge base (RAG with hybrid search)",
+    "Time-limited offers the AI quotes automatically",
+    "Hand-off to a human when the customer asks",
+    "Shared team inbox with tags, notes and assignment",
+    "Sentiment and analytics dashboard",
   ],
 };
+
+const FAQ: Array<{ q: string; a: string }> = [
+  {
+    q: "How much does InboxWeave cost?",
+    a: "InboxWeave costs 30 OMR per month. That one plan includes every feature, all three channels (WhatsApp, Instagram and Messenger), unlimited team members and support. There is no setup fee. AI usage is billed by OpenAI to your own OpenAI API key, so you only pay OpenAI for the messages the AI actually answers.",
+  },
+  {
+    q: "Which messaging channels does InboxWeave support?",
+    a: "InboxWeave connects WhatsApp (through the official WhatsApp Business Cloud API), Instagram direct messages and Facebook Messenger. Messages from all three arrive in one shared inbox.",
+  },
+  {
+    q: "Does the AI reply in Arabic?",
+    a: "Yes. The AI detects the customer's language and replies in the same language, including Arabic and English. Arabic questions are matched against English knowledge-base documents too, so you don't need to write everything twice.",
+  },
+  {
+    q: "How does the AI know about my business?",
+    a: "You upload your FAQs, price lists and policies to the knowledge base. For every customer message, InboxWeave finds the relevant parts using hybrid search (meaning-based vector search combined with exact keyword matching) and the AI answers from them. If the answer isn't in your knowledge base, the AI says it will check with your team instead of guessing.",
+  },
+  {
+    q: "Can the AI tell customers about my current offers?",
+    a: "Yes. Add an offer with its prices and an optional end date on the Offers page. While it runs, the AI quotes the offer instead of your regular price and lists it when customers ask about promotions. After the end date it goes back to your regular prices automatically, without editing your knowledge base.",
+  },
+  {
+    q: "Can a human take over a conversation?",
+    a: "Yes. Your team can reply from the inbox at any time, pause the AI for one conversation or for the whole account, and customers can type stop to switch the AI off for their chat.",
+  },
+];
 
 const faqJsonLd = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
-  mainEntity: [
-    {
-      "@type": "Question",
-      name: "How much does InboxWeave cost?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "300 OMR one-time setup fee gets you full platform access. Optional add-ons: 50 OMR/year for priority support and 10 OMR/month for AI token reload. Alternatively, bring your own OpenAI API key and skip the token fee.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "Which messaging channels does InboxWeave support?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "InboxWeave supports WhatsApp (via Cloud API), Instagram DMs, and Facebook Messenger. All channels appear in one unified inbox.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "How does the AI know about my business?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "You upload your FAQs, product docs, and policies to the knowledge base. The AI uses retrieval-augmented generation (RAG) with pgvector embeddings to find relevant context for every customer message and includes it in the reply.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "Can I have multiple organizations?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Yes, you can create unlimited organizations, each with its own channels, knowledge base, AI settings, and team members. Each org is fully isolated with row-level security.",
-      },
-    },
-  ],
+  mainEntity: FAQ.map(({ q, a }) => ({
+    "@type": "Question",
+    name: q,
+    acceptedAnswer: { "@type": "Answer", text: a },
+  })),
 };
 
 export default function Home() {
@@ -79,6 +99,7 @@ export default function Home() {
     <div className="min-h-screen bg-white">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }} />
       {/* ── Nav ──────────────────────────────────────────────── */}
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <LogoFull />
@@ -101,19 +122,19 @@ export default function Home() {
       {/* ── Hero ─────────────────────────────────────────────── */}
       <section className="mx-auto max-w-4xl px-6 pt-16 pb-20 text-center">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-700">
-          One-time 300 OMR setup &middot; Own your inbox &middot; No subscriptions
+          30 OMR per month &middot; No setup fee &middot; Arabic &amp; English
         </div>
 
         <h1 className="text-5xl font-extrabold tracking-tight text-slate-900 sm:text-6xl leading-[1.1]">
-          AI-powered inbox for<br />
+          AI auto-replies for<br />
           <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 bg-clip-text text-transparent">
-            every conversation
+            WhatsApp, Instagram &amp; Messenger
           </span>
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-500 leading-relaxed">
-          Connect WhatsApp, Instagram, and Messenger to one intelligent inbox.
-          AI replies instantly, learns your business, and hands off to humans when it matters.
+          InboxWeave answers your customers on WhatsApp, Instagram and Messenger in Arabic and English,
+          using your own price list, policies and current offers, and hands off to your team when it matters.
         </p>
 
         <div className="mt-6 flex items-center justify-center gap-5">
@@ -131,7 +152,7 @@ export default function Home() {
           </Link>
         </div>
 
-        <p className="mt-4 text-xs text-slate-400">300 OMR one-time setup &middot; 50 OMR/year support (optional) &middot; 10 OMR/month token reload (optional)</p>
+        <p className="mt-4 text-xs text-slate-400">30 OMR per month &middot; Every feature and support included &middot; No setup fee</p>
       </section>
 
       {/* ── Ad slot 1 ────────────────────────────────────────── */}
@@ -234,7 +255,7 @@ export default function Home() {
                 any of 50+ languages. No translation step, no config.
               </p>
               <ul className="mt-6 space-y-3">
-                {["Retrieves from your knowledge base on every reply", "Auto-detects language and responds in kind", "Choose GPT-4o-mini, GPT-4o, or GPT-4.1"].map((t) => (
+                {["Retrieves from your knowledge base on every reply", "Auto-detects language and responds in kind", "Choose from OpenAI's latest GPT-5 models"].map((t) => (
                   <li key={t} className="flex items-start gap-2 text-sm text-slate-600">
                     <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                     {t}
@@ -494,88 +515,35 @@ export default function Home() {
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-xs font-semibold text-indigo-700">
               Simple, transparent pricing
             </div>
-            <h2 className="text-3xl font-extrabold tracking-tight">One setup fee.<br />Optional support &amp; usage on top.</h2>
+            <h2 className="text-3xl font-extrabold tracking-tight">One plan. 30 OMR per month.</h2>
             <p className="mt-4 text-slate-500 max-w-xl mx-auto">
-              Pay once to own your InboxWeave setup. Choose support and AI usage
-              add-ons based on what you need.
+              Every feature, every channel and support included. No setup fee and no add-ons to work out.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {/* Tier 1 — One-time setup */}
+          <div className="mx-auto max-w-md">
             <div className="rounded-2xl border-2 border-indigo-600 bg-white p-8 shadow-xl shadow-indigo-100 relative overflow-hidden">
               <div className="absolute top-0 right-0 rounded-bl-xl bg-indigo-600 px-4 py-1.5 text-xs font-bold text-white">
-                ONE-TIME
+                MONTHLY
               </div>
-              <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">Setup</div>
+              <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">InboxWeave</div>
               <div className="mb-6">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-5xl font-extrabold">300</span>
-                  <span className="text-slate-500 font-semibold">OMR</span>
-                </div>
-                <p className="mt-2 text-sm text-slate-500">Pay once, set up your account.</p>
-              </div>
-              <ul className="space-y-3 mb-2">
-                {[
-                  "Full InboxWeave platform access",
-                  "Unlimited organizations + team members",
-                  "All channels: WhatsApp, Instagram, Messenger",
-                  "AI auto-reply with knowledge base (RAG)",
-                  "Sentiment, analytics, canned replies",
-                  "Onboarding + initial channel connection",
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
-                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Tier 2 — Annual support */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-8">
-              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Support · Optional</div>
-              <div className="mb-6">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-5xl font-extrabold">50</span>
-                  <span className="text-slate-500 font-semibold">OMR</span>
-                  <span className="text-slate-400 text-sm">/year</span>
-                </div>
-                <p className="mt-2 text-sm text-slate-500">Priority help, knowledge-base updates, bug fixes for 12 months.</p>
-              </div>
-              <ul className="space-y-3 mb-2">
-                {[
-                  "Priority WhatsApp + email support",
-                  "Help editing knowledge base + prompts",
-                  "Bug fixes and feature requests",
-                  "Token + channel reconnection assistance",
-                  "Renewable yearly",
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
-                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Tier 3 — Token reload */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-8">
-              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">AI tokens · Pay as you go</div>
-              <div className="mb-6">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-5xl font-extrabold">10</span>
+                  <span className="text-5xl font-extrabold">30</span>
                   <span className="text-slate-500 font-semibold">OMR</span>
                   <span className="text-slate-400 text-sm">/month</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">Reload AI tokens monthly. Or bring your own OpenAI key for free.</p>
+                <p className="mt-2 text-sm text-slate-500">Everything you need to answer customers automatically.</p>
               </div>
               <ul className="space-y-3 mb-2">
                 {[
-                  "Monthly AI token allocation",
-                  "Covers typical small-business traffic",
-                  "No setup, we handle billing with OpenAI",
-                  "Alternative: bring your own OpenAI API key at no charge",
+                  "WhatsApp, Instagram and Messenger in one inbox",
+                  "AI auto-replies in Arabic and English",
+                  "Answers from your own knowledge base",
+                  "Offers the AI quotes automatically until they end",
+                  "Unlimited organizations and team members",
+                  "Sentiment, analytics and canned replies",
+                  "Onboarding, channel setup and ongoing support",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
                     <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -583,6 +551,9 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+              <p className="mt-6 text-xs text-slate-400">
+                AI usage is billed by OpenAI to your own OpenAI API key, so you only pay for the messages the AI answers.
+              </p>
             </div>
           </div>
 
@@ -590,7 +561,22 @@ export default function Home() {
             <Link href="/signup" className="btn px-10 py-4 text-base shadow-lg shadow-indigo-200">
               Get started &rarr;
             </Link>
-            <p className="mt-3 text-xs text-slate-400">300 OMR one-time setup &middot; Support and tokens optional</p>
+            <p className="mt-3 text-xs text-slate-400">30 OMR per month &middot; No setup fee</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ ─────────────────────────────────────────────── */}
+      <section id="faq" className="border-t border-slate-100 py-20">
+        <div className="mx-auto max-w-3xl px-6">
+          <h2 className="mb-10 text-center text-3xl font-extrabold tracking-tight">Frequently asked questions</h2>
+          <div className="space-y-6">
+            {FAQ.map(({ q, a }) => (
+              <div key={q}>
+                <h3 className="font-semibold text-slate-900">{q}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{a}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -608,7 +594,7 @@ export default function Home() {
           <Link href="/signup" className="btn mt-8 px-10 py-4 text-base shadow-lg shadow-indigo-200">
             Get started &rarr;
           </Link>
-          <p className="mt-3 text-xs text-slate-400">300 OMR one-time &middot; Support &amp; tokens optional</p>
+          <p className="mt-3 text-xs text-slate-400">30 OMR per month &middot; No setup fee</p>
         </div>
       </section>
 

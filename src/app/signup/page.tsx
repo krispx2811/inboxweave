@@ -60,12 +60,12 @@ export default function SignupPage() {
           {/* Feature highlights */}
           <div className="mt-8 grid grid-cols-2 gap-3">
             {[
-              { label: "AI Auto-Reply", desc: "GPT-4o answers instantly" },
-              { label: "5 Channels", desc: "WA, IG, FB, SMS, Email" },
+              { label: "AI Auto-Reply", desc: "Arabic & English, instantly" },
+              { label: "3 Channels", desc: "WhatsApp, Instagram, Messenger" },
               { label: "Knowledge Base", desc: "Upload docs for RAG" },
               { label: "Team Inbox", desc: "Assign, tag, resolve" },
               { label: "Analytics", desc: "Response times + CSAT" },
-              { label: "100% Free", desc: "No subscriptions ever" },
+              { label: "30 OMR / month", desc: "No setup fee" },
             ].map(({ label, desc }) => (
               <div key={label} className="rounded-lg bg-white/10 px-3 py-2.5 backdrop-blur-sm border border-white/10">
                 <div className="text-xs font-bold">{label}</div>

@@ -8,11 +8,11 @@ const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://inboxweave.com";
 
 export const metadata: Metadata = {
   title: {
-    default: "InboxWeave — AI-Powered Customer Messaging for WhatsApp, Instagram & Messenger",
+    default: "InboxWeave — AI Auto-Replies for WhatsApp, Instagram & Messenger in Oman",
     template: "%s | InboxWeave",
   },
   description:
-    "Connect WhatsApp, Instagram, and Messenger to one AI-powered inbox. Auto-reply with GPT-4o, upload your knowledge base, track analytics, and hand off to humans when it matters. 300 OMR one-time setup.",
+    "AI that answers your WhatsApp, Instagram and Messenger customers in Arabic and English from your own price list and offers, with a shared team inbox. 30 OMR/month.",
   keywords: [
     "AI customer support",
     "WhatsApp business AI",
@@ -20,7 +20,11 @@ export const metadata: Metadata = {
     "Facebook Messenger bot",
     "AI inbox",
     "customer messaging platform",
-    "GPT-4o customer support",
+    "WhatsApp chatbot Oman",
+    "AI customer service Oman",
+    "WhatsApp auto reply Arabic",
+    "رد آلي واتساب",
+    "شات بوت واتساب عمان",
     "multi-channel inbox",
     "AI auto reply",
     "WhatsApp Cloud API",
@@ -29,6 +33,7 @@ export const metadata: Metadata = {
     "AI chatbot",
     "conversational AI",
     "BYOK OpenAI",
+    "GCC customer support software",
   ],
   authors: [{ name: "InboxWeave" }],
   creator: "InboxWeave",
@@ -42,24 +47,16 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: siteUrl,
     siteName: "InboxWeave",
-    title: "InboxWeave — AI-Powered Customer Messaging",
+    title: "InboxWeave — AI Auto-Replies for WhatsApp, Instagram & Messenger",
     description:
-      "Connect WhatsApp, Instagram & Messenger to one AI inbox. GPT-4o auto-replies, knowledge base RAG, sentiment analysis, and team collaboration. 300 OMR one-time setup, no subscriptions.",
-    images: [
-      {
-        url: `${siteUrl}/og-image.png`,
-        width: 1200,
-        height: 630,
-        alt: "InboxWeave — AI-Powered Customer Messaging Platform",
-      },
-    ],
+      "AI that answers your customers on WhatsApp, Instagram and Messenger in Arabic and English, from your own price list and offers. 30 OMR/month, no setup fee.",
+    // Image comes from app/opengraph-image.tsx.
   },
   twitter: {
     card: "summary_large_image",
-    title: "InboxWeave — AI-Powered Customer Messaging",
+    title: "InboxWeave — AI Auto-Replies for WhatsApp, Instagram & Messenger",
     description:
-      "One inbox for WhatsApp, Instagram & Messenger. AI auto-replies with GPT-4o, knowledge base, analytics, and team tools. 300 OMR one-time setup.",
-    images: [`${siteUrl}/og-image.png`],
+      "AI customer replies in Arabic and English for WhatsApp, Instagram and Messenger. 30 OMR/month, no setup fee.",
   },
   robots: {
     index: true,

@@ -1,0 +1,25 @@
+# InboxWeave
+
+> InboxWeave is an AI customer messaging platform for businesses in Oman and the GCC. It answers customers on WhatsApp, Instagram and Facebook Messenger in Arabic and English, using the business's own knowledge base and current offers, and hands conversations to the business's team when needed. It costs 30 OMR per month.
+
+## Pricing
+
+- One plan: 30 OMR per month. Every feature, all channels, unlimited team members and support are included.
+- No setup fee.
+- AI usage is billed by OpenAI to the business's own OpenAI API key.
+
+## What it does
+
+- Connects WhatsApp (official WhatsApp Business Cloud API), Instagram direct messages and Facebook Messenger into one shared inbox.
+- Replies automatically in the customer's language, including Arabic and English.
+- Answers from documents the business uploads (FAQs, price lists, policies), found with hybrid search: vector similarity plus keyword matching.
+- Quotes time-limited offers added on the Offers page instead of regular prices, and stops after the offer's end date.
+- Lets the team reply, pause the AI per conversation or for the whole account; customers can type "stop" to switch the AI off for their chat.
+- Includes tags, internal notes, assignment, canned replies, sentiment and analytics.
+
+## Links
+
+- [Home and pricing](https://inboxweave.com/)
+- [Setup guides](https://inboxweave.com/guides): connecting Meta, WhatsApp, Instagram and Messenger
+- [Sign up](https://inboxweave.com/signup)
+- [Terms](https://inboxweave.com/terms) · [Privacy](https://inboxweave.com/privacy) · [Data processing agreement](https://inboxweave.com/dpa)
