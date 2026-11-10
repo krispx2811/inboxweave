@@ -1,4 +1,5 @@
 import "server-only";
+import { containsArabic } from "./language";
 
 /**
  * Language detection + bilingual (English/Arabic) commands and footers
@@ -45,10 +46,7 @@ export function detectStopStart(text: string | null | undefined): "stop" | "star
   return null;
 }
 
-export function containsArabic(text: string | null | undefined): boolean {
-  if (!text) return false;
-  return /[؀-ۿ]/.test(text);
-}
+export { containsArabic };
 
 /** Return "ar" if the text is primarily Arabic, else "en". */
 export function primaryLanguage(
