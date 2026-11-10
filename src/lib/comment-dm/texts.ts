@@ -1,0 +1,155 @@
+import { z } from "zod";
+import { containsArabic } from "../channels/language.ts";
+import { TEXT_KEYS, type Lang, type SavedTexts, type TextKey, type Texts } from "./types.ts";
+
+/** Default texts, used for any field the owner leaves empty. */
+export const DEFAULT_TEXTS: Record<Lang, Texts> = {
+  en: {
+    publicReply: "Sent you a DM 📩",
+    opening: "Hey! Thanks for your comment 🙌 Tap the button below and I'll send you the link.",
+    openingButton: "Send me the link",
+    followFirst:
+      "Almost there! Follow our account first, then tap the button below and I'll send you the link right away.",
+    followedButton: "I followed ✅",
+    linkMessage: "Here's your link 🎉",
+    linkButton: "Open link",
+  },
+  ar: {
+    publicReply: "أرسلنا لك رسالة على الخاص 📩",
+    opening: "أهلاً! شكراً على تعليقك 🙌 اضغط الزر تحت ونرسل لك الرابط.",
+    openingButton: "أرسل لي الرابط",
+    followFirst: "باقي خطوة! تابع حسابنا أولاً، بعدها اضغط الزر تحت ونرسل لك الرابط مباشرة.",
+    followedButton: "تابعت ✅",
+    linkMessage: "تفضل الرابط 🎉",
+    linkButton: "افتح الرابط",
+  },
+};
+
+/** Meta's limits: button labels 20, template text 640. Public replies kept short. */
+export const TEXT_LIMITS: Record<TextKey, number> = {
+  publicReply: 300,
+  opening: 640,
+  openingButton: 20,
+  followFirst: 640,
+  followedButton: 20,
+  linkMessage: 640,
+  linkButton: 20,
+};
+
+export const TEXT_LABELS: Record<TextKey, string> = {
+  publicReply: "Public reply under the comment",
+  opening: "First DM",
+  openingButton: "First DM button",
+  followFirst: "Message when they don't follow yet",
+  followedButton: "\"I followed\" button",
+  linkMessage: "Message with the link",
+  linkButton: "Link button",
+};
+
+export const LANG_NAMES: Record<Lang, string> = { en: "English", ar: "Arabic" };
+
+/**
+ * The language to answer a comment in: Arabic letters → ar, any other
+ * letters → en, no letters at all (emoji, numbers, @tags) → the default.
+ */
+export function pickLanguage(commentText: string, fallback: Lang): Lang {
+  const words = commentText.replace(/@[A-Za-z0-9._]+/g, " ");
+  if (containsArabic(words)) return "ar";
+  if (/\p{L}/u.test(words)) return "en";
+  return fallback;
+}
+
+/** The texts to send in `lang`: the owner's non-empty texts over the defaults. */
+export function resolveTexts(saved: SavedTexts | null | undefined, lang: Lang): Texts {
+  const out: Texts = { ...DEFAULT_TEXTS[lang] };
+  const custom = saved?.[lang] ?? {};
+  for (const key of TEXT_KEYS) {
+    const value = custom[key]?.trim();
+    if (value) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Keep only texts that differ from the defaults, so a later change to a
+ * default still reaches owners who never edited that text.
+ */
+export function compactTexts(texts: SavedTexts): SavedTexts {
+  const out: SavedTexts = {};
+  for (const lang of ["en", "ar"] as const) {
+    const kept: Partial<Texts> = {};
+    for (const key of TEXT_KEYS) {
+      const value = texts[lang]?.[key]?.trim();
+      if (value && value !== DEFAULT_TEXTS[lang][key]) kept[key] = value;
+    }
+    if (Object.keys(kept).length > 0) out[lang] = kept;
+  }
+  return out;
+}
+
+/** https, with a host and no credentials. We send the link to Instagram; we never fetch it. */
+export function isHttpsUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.length > 0 && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function textField(key: TextKey, lang: Lang) {
+  const limit = TEXT_LIMITS[key];
+  return z
+    .string()
+    .trim()
+    .max(limit, `${TEXT_LABELS[key]} (${LANG_NAMES[lang]}) can be at most ${limit} characters`);
+}
+
+function langTextsSchema(lang: Lang) {
+  return z
+    .object({
+      publicReply: textField("publicReply", lang),
+      opening: textField("opening", lang),
+      openingButton: textField("openingButton", lang),
+      followFirst: textField("followFirst", lang),
+      followedButton: textField("followedButton", lang),
+      linkMessage: textField("linkMessage", lang),
+      linkButton: textField("linkButton", lang),
+    })
+    .partial();
+}
+
+export const SettingsFormSchema = z.object({
+  linkUrl: z
+    .string()
+    .trim()
+    .max(2000, "The link is too long")
+    .refine((v) => v === "" || isHttpsUrl(v), "The link must start with https://"),
+  defaultLanguage: z.enum(["en", "ar"]),
+  requireFollow: z.boolean(),
+  publicReplyEnabled: z.boolean(),
+  texts: z.object({ en: langTextsSchema("en"), ar: langTextsSchema("ar") }),
+});
+export type SettingsForm = z.infer<typeof SettingsFormSchema>;
+
+/** Name of one text input on the settings form, e.g. "ar.opening". */
+export function textFieldName(lang: Lang, key: TextKey): string {
+  return `${lang}.${key}`;
+}
+
+/** Parse the settings form. `get` is FormData.get, or a fake in tests. */
+export function parseSettingsForm(get: (name: string) => unknown) {
+  const str = (name: string) => {
+    const v = get(name);
+    return typeof v === "string" ? v : "";
+  };
+  const textsFor = (lang: Lang) =>
+    Object.fromEntries(TEXT_KEYS.map((key) => [key, str(textFieldName(lang, key))]));
+  return SettingsFormSchema.safeParse({
+    linkUrl: str("linkUrl"),
+    defaultLanguage: str("defaultLanguage"),
+    requireFollow: get("requireFollow") === "on",
+    publicReplyEnabled: get("publicReplyEnabled") === "on",
+    texts: { en: textsFor("en"), ar: textsFor("ar") },
+  });
+}
