@@ -8,16 +8,20 @@ import {
 } from "./actions";
 import Link from "next/link";
 import { CHAT_MODELS, DEFAULT_MODEL } from "@/lib/ai/models";
+import { PERSONA_MAX_CHARS } from "@/lib/ai/persona";
 import { IconSparkle, IconShield, IconFacebook, IconGlobe, IconBolt } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ orgId: string }>;
+  searchParams: Promise<{ persona?: string; persona_error?: string }>;
 }) {
   const { orgId } = await params;
+  const { persona, persona_error: personaError } = await searchParams;
   await requireOrgMember(orgId);
   const admin = createSupabaseAdminClient();
   const [{ data: settings }, { data: secrets }] = await Promise.all([
@@ -53,6 +57,16 @@ export default async function SettingsPage({
             <p className="text-xs text-slate-500">Model: {settings?.model ?? DEFAULT_MODEL}</p>
           </div>
         </div>
+        {persona === "saved" && (
+          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Persona saved.
+          </div>
+        )}
+        {personaError && (
+          <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <strong>Not saved.</strong> {personaError}
+          </div>
+        )}
         <form action={updateAiSettings} className="space-y-4">
           <input type="hidden" name="orgId" value={orgId} />
           <div>
@@ -65,6 +79,10 @@ export default async function SettingsPage({
               placeholder="Tell the AI how to behave, what tone to use, and what it should know about your business..."
               required
             />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Up to {PERSONA_MAX_CHARS.toLocaleString("en-US")} characters. Put long reference material, like price lists
+              and FAQs, in Knowledge.
+            </p>
           </div>
           <div className="max-w-[300px]">
             <label className="label" htmlFor="model">Model</label>
@@ -182,7 +200,7 @@ export default async function SettingsPage({
                 platform.openai.com/settings/organization/admin-keys
               </a>
               . Stored encrypted; used only for read-only billing + usage
-              queries against OpenAI's /v1/organization endpoints.
+              queries against OpenAI&apos;s /v1/organization endpoints.
             </p>
           </div>
           <div className="flex items-center gap-2">
