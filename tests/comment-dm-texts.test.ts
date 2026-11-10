@@ -101,3 +101,27 @@ test("rejects http links and long button labels with a readable message", () => 
   assert.equal(long.success, false);
   assert.match(long.error!.issues[0]!.message, /First DM button \(Arabic\) can be at most 20 characters/);
 });
+
+test("digits, Arabic punctuation and emoji don't make a comment Arabic", () => {
+  assert.equal(pickLanguage("٣", "en"), "en");
+  assert.equal(pickLanguage("🔥؟", "en"), "en");
+  assert.equal(pickLanguage("🔥؟", "ar"), "ar");
+});
+
+test("Arabic presentation forms count as Arabic letters", () => {
+  assert.equal(pickLanguage("ﻻ", "en"), "ar");
+});
+
+test("the saved link is normalised", () => {
+  const result = parseSettingsForm(form({ linkUrl: "https:example.com", defaultLanguage: "en" }));
+  assert.ok(result.success);
+  assert.equal(result.data.linkUrl, "https://example.com/");
+});
+
+test("non-string saved texts fall back instead of throwing", () => {
+  const bad = { ar: { opening: 5, linkButton: null } } as unknown as Parameters<typeof resolveTexts>[0];
+  const texts = resolveTexts(bad, "ar");
+  assert.equal(texts.opening, DEFAULT_TEXTS.ar.opening);
+  assert.equal(texts.linkButton, DEFAULT_TEXTS.ar.linkButton);
+  assert.deepEqual(compactTexts(bad as Parameters<typeof compactTexts>[0]), {});
+});

@@ -41,25 +41,34 @@ interface RawEntry {
   standby?: RawMessaging[];
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Entries that are objects with an id; anything else is skipped. */
 function entriesOf(body: unknown): RawEntry[] {
-  const entry = (body as { entry?: unknown } | null)?.entry;
-  return Array.isArray(entry) ? (entry as RawEntry[]) : [];
+  const entry = isObject(body) ? body.entry : undefined;
+  if (!Array.isArray(entry)) return [];
+  return entry.filter((e): e is RawEntry => isObject(e) && e.id != null);
+}
+
+function objectsIn(list: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(list) ? list.filter(isObject) : [];
 }
 
 export function parseCommentEvents(body: unknown): CommentEvent[] {
   const out: CommentEvent[] = [];
   for (const entry of entriesOf(body)) {
-    if (entry.id == null) continue;
-    for (const change of entry.changes ?? []) {
-      if (change.field !== "comments" || !change.value) continue;
+    for (const change of objectsIn(entry.changes) as Array<{ field?: string; value?: unknown }>) {
+      if (change.field !== "comments" || !isObject(change.value)) continue;
       const v = change.value as RawComment;
-      if (v.id == null || v.from?.id == null || v.media?.id == null) continue;
+      if (v.id == null || !isObject(v.from) || v.from.id == null || !isObject(v.media) || v.media.id == null) continue;
       out.push({
         accountId: String(entry.id),
         commentId: String(v.id),
         mediaId: String(v.media.id),
         commenterId: String(v.from.id),
-        commenterUsername: v.from.username,
+        commenterUsername: typeof v.from.username === "string" ? v.from.username : undefined,
         text: typeof v.text === "string" ? v.text : "",
       });
     }
@@ -70,20 +79,25 @@ export function parseCommentEvents(body: unknown): CommentEvent[] {
 export function parseTapEvents(body: unknown): TapEvent[] {
   const out: TapEvent[] = [];
   for (const entry of entriesOf(body)) {
-    if (entry.id == null) continue;
-    const events: RawMessaging[] = [...(entry.messaging ?? []), ...(entry.standby ?? [])];
-    for (const change of entry.changes ?? []) {
-      if (change.field === "messaging_postbacks" && change.value) events.push(change.value as RawMessaging);
+    const events = [...objectsIn(entry.messaging), ...objectsIn(entry.standby)] as RawMessaging[];
+    for (const change of objectsIn(entry.changes) as Array<{ field?: string; value?: unknown }>) {
+      if (change.field === "messaging_postbacks" && isObject(change.value)) events.push(change.value as RawMessaging);
     }
     for (const ev of events) {
       const postback = ev.postback;
-      if (!postback?.payload || ev.sender?.id == null) continue;
+      if (!isObject(postback) || typeof postback.payload !== "string" || !postback.payload) continue;
+      if (!isObject(ev.sender) || ev.sender.id == null) continue;
       const senderId = String(ev.sender.id);
+      const mid =
+        (typeof postback.mid === "string" && postback.mid) ||
+        (ev.timestamp != null ? `postback:${senderId}:${ev.timestamp}` : "");
+      // Without a mid or a timestamp every tap would share one dedupe key.
+      if (!mid) continue;
       out.push({
         accountId: String(entry.id),
         senderId,
-        mid: postback.mid ?? `postback:${senderId}:${ev.timestamp ?? ""}`,
-        title: postback.title ?? "",
+        mid,
+        title: typeof postback.title === "string" ? postback.title : "",
         payload: postback.payload,
       });
     }

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { containsArabic } from "../channels/language.ts";
 import { TEXT_KEYS, type Lang, type SavedTexts, type TextKey, type Texts } from "./types.ts";
 
 /** Default texts, used for any field the owner leaves empty. */
@@ -54,7 +53,7 @@ export const LANG_NAMES: Record<Lang, string> = { en: "English", ar: "Arabic" };
  */
 export function pickLanguage(commentText: string, fallback: Lang): Lang {
   const words = commentText.replace(/@[A-Za-z0-9._]+/g, " ");
-  if (containsArabic(words)) return "ar";
+  if (/(?=\p{Script=Arabic})\p{L}/u.test(words)) return "ar";
   if (/\p{L}/u.test(words)) return "en";
   return fallback;
 }
@@ -64,7 +63,8 @@ export function resolveTexts(saved: SavedTexts | null | undefined, lang: Lang): 
   const out: Texts = { ...DEFAULT_TEXTS[lang] };
   const custom = saved?.[lang] ?? {};
   for (const key of TEXT_KEYS) {
-    const value = custom[key]?.trim();
+    const raw = custom[key];
+    const value = typeof raw === "string" ? raw.trim() : "";
     if (value) out[key] = value;
   }
   return out;
@@ -79,7 +79,8 @@ export function compactTexts(texts: SavedTexts): SavedTexts {
   for (const lang of ["en", "ar"] as const) {
     const kept: Partial<Texts> = {};
     for (const key of TEXT_KEYS) {
-      const value = texts[lang]?.[key]?.trim();
+      const raw = texts[lang]?.[key];
+      const value = typeof raw === "string" ? raw.trim() : "";
       if (value && value !== DEFAULT_TEXTS[lang][key]) kept[key] = value;
     }
     if (Object.keys(kept).length > 0) out[lang] = kept;
@@ -106,17 +107,16 @@ function textField(key: TextKey, lang: Lang) {
 }
 
 function langTextsSchema(lang: Lang) {
-  return z
-    .object({
-      publicReply: textField("publicReply", lang),
-      opening: textField("opening", lang),
-      openingButton: textField("openingButton", lang),
-      followFirst: textField("followFirst", lang),
-      followedButton: textField("followedButton", lang),
-      linkMessage: textField("linkMessage", lang),
-      linkButton: textField("linkButton", lang),
-    })
-    .partial();
+  const shape = {
+    publicReply: textField("publicReply", lang),
+    opening: textField("opening", lang),
+    openingButton: textField("openingButton", lang),
+    followFirst: textField("followFirst", lang),
+    followedButton: textField("followedButton", lang),
+    linkMessage: textField("linkMessage", lang),
+    linkButton: textField("linkButton", lang),
+  } satisfies Record<TextKey, z.ZodTypeAny>;
+  return z.object(shape).partial();
 }
 
 export const SettingsFormSchema = z.object({
@@ -124,7 +124,8 @@ export const SettingsFormSchema = z.object({
     .string()
     .trim()
     .max(2000, "The link is too long")
-    .refine((v) => v === "" || isHttpsUrl(v), "The link must start with https://"),
+    .refine((v) => v === "" || isHttpsUrl(v), "The link must start with https://")
+    .transform((v) => (v === "" ? "" : new URL(v).href)),
   defaultLanguage: z.enum(["en", "ar"]),
   requireFollow: z.boolean(),
   publicReplyEnabled: z.boolean(),

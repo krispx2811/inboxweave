@@ -114,3 +114,55 @@ test("payloads round-trip, and only our own decode", () => {
   assert.equal(decodePayload(""), null);
   assert.equal(decodePayload(undefined), null);
 });
+
+test("parsers never throw on odd webhook bodies", () => {
+  const bodies = [
+    { entry: [null] },
+    { entry: ["x", 5] },
+    { entry: [{ id: ACCOUNT, changes: {} }] },
+    { entry: [{ id: ACCOUNT, changes: [null] }] },
+    { entry: [{ id: ACCOUNT, changes: ["x"] }] },
+    { entry: [{ id: ACCOUNT, messaging: {} }] },
+    { entry: [{ id: ACCOUNT, messaging: [null] }] },
+    { entry: [{ id: ACCOUNT, standby: "x" }] },
+    { entry: [{ id: ACCOUNT, changes: [{ field: "messaging_postbacks", value: "x" }] }] },
+    { entry: [{ id: ACCOUNT, messaging: [{ sender: { id: "1" }, postback: "x" }] }] },
+  ];
+  for (const body of bodies) {
+    assert.deepEqual(parseCommentEvents(body), []);
+    assert.deepEqual(parseTapEvents(body), []);
+  }
+});
+
+test("a numeric payload is not a tap", () => {
+  const body = { entry: [{ id: ACCOUNT, messaging: [{ sender: { id: "1" }, postback: { mid: "m", payload: 5 } }] }] };
+  assert.deepEqual(parseTapEvents(body), []);
+});
+
+test("a non-string username reads as no username", () => {
+  const body = { entry: [{ id: ACCOUNT, changes: [{ field: "comments", value: { id: "1", text: "hi", from: { id: "2", username: 42 }, media: { id: "3" } } }] }] };
+  const [event] = parseCommentEvents(body);
+  assert.equal(event!.commenterUsername, undefined);
+});
+
+test("reads a tap from entry.standby", () => {
+  const body = { entry: [{ id: ACCOUNT, standby: [{ sender: { id: "igsid-1" }, postback: { mid: "mid-s", title: "t", payload: `cdm:${EVENT_ID}` } }] }] };
+  assert.equal(parseTapEvents(body)[0]!.mid, "mid-s");
+});
+
+test("an entry with no id is skipped", () => {
+  const comment = { entry: [{ changes: [{ field: "comments", value: { id: "1", from: { id: "2" }, media: { id: "3" } } }] }] };
+  const tap = { entry: [{ messaging: [{ sender: { id: "1" }, postback: { mid: "m", payload: "p" } }] }] };
+  assert.deepEqual(parseCommentEvents(comment), []);
+  assert.deepEqual(parseTapEvents(tap), []);
+});
+
+test("an empty mid falls back to the timestamp key", () => {
+  const body = { entry: [{ id: ACCOUNT, messaging: [{ sender: { id: "igsid-1" }, timestamp: 7, postback: { mid: "", payload: `cdm:${EVENT_ID}` } }] }] };
+  assert.equal(parseTapEvents(body)[0]!.mid, "postback:igsid-1:7");
+});
+
+test("a tap with neither mid nor timestamp is skipped", () => {
+  const body = { entry: [{ id: ACCOUNT, messaging: [{ sender: { id: "igsid-1" }, postback: { payload: `cdm:${EVENT_ID}` } }] }] };
+  assert.deepEqual(parseTapEvents(body), []);
+});
