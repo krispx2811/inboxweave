@@ -31,6 +31,10 @@
 6. **The private DM is sent before the public reply**, and the public reply only goes out if the DM did. Its "sent you a DM" text is then always true, and a failed DM can't loop public replies.
 7. **`dm_sent` and `recipientId` are saved right after Meta accepts the DM.** The inbox copy (conversation and message) is best-effort and only adds an `inbox: ...` note to the event's error. The same goes for the tap's link message: the event is updated first, then the outgoing message is logged best-effort.
 8. **Stored errors are clipped to 300 code points** (not UTF-16 units), prefixes included, so emoji are never split.
+9. **Comments and taps are processed 5 at a time** (a small worker pool in `pool.ts`), not one after another. Each event keeps its own try/catch.
+10. **The inbox copy is saved before the public reply**, so the platform message id is stored before Instagram's echo of the DM arrives.
+11. **The public reply picks one of several lines at random.** The field holds one reply per line (each up to 300 characters, 1500 in total), and the defaults have three per language.
+12. **Public replies stop for the hour after 30 DMs in the last 60 minutes** (the DMs continue, and the event notes the skip). The settings page shows a Warnings count for partial failures and rows stuck in `pending`.
 
 ## File structure
 

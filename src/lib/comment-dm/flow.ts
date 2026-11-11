@@ -1,5 +1,5 @@
 import { decodePayload, encodePayload } from "./parse.ts";
-import { pickLanguage, resolveTexts } from "./texts.ts";
+import { pickLanguage, pickPublicReply, resolveTexts } from "./texts.ts";
 import type {
   ButtonMessage,
   ChannelInfo,
@@ -48,7 +48,11 @@ function isOwnComment(ev: CommentEvent, channel: ChannelInfo): boolean {
   );
 }
 
-export async function handleComment(ev: CommentEvent, { store, meta }: CommentDmDeps): Promise<CommentOutcome> {
+/** Public replies pause once this many DMs went out in the last hour (the DMs themselves never do). */
+export const PUBLIC_REPLY_HOURLY_CAP = 30;
+const HOUR_MS = 60 * 60 * 1000;
+
+export async function handleComment(ev: CommentEvent, { store, meta, random }: CommentDmDeps): Promise<CommentOutcome> {
   const channel = await store.getChannelByExternalId(ev.accountId);
   if (!channel) return "no_channel";
   // Includes our own public replies, which come back as comments: no loops.
@@ -92,16 +96,8 @@ export async function handleComment(ev: CommentEvent, { store, meta }: CommentDm
 
   const problems: string[] = [];
 
-  // 3. The public reply is a nice-to-have, and only goes out once the DM did.
-  if (settings.publicReplyEnabled) {
-    try {
-      await meta.replyToComment(channel.id, ev.commentId, texts.publicReply);
-    } catch (err) {
-      problems.push(`public reply: ${errorText(err)}`);
-    }
-  }
-
-  // 4. The inbox copy is best-effort too.
+  // 3. The inbox copy is best-effort. It goes before the public reply so the saved
+  // platform message id is in place before Instagram's echo of the DM arrives.
   try {
     const conversationId = await store.ensureConversation({
       orgId: channel.orgId,
@@ -121,6 +117,27 @@ export async function handleComment(ev: CommentEvent, { store, meta }: CommentDm
     });
   } catch (err) {
     problems.push(`inbox: ${errorText(err)}`);
+  }
+
+  // 4. The public reply is a nice-to-have, and only goes out once the DM did. Past the
+  // hourly cap it's skipped, so Instagram doesn't see hundreds of replies an hour.
+  if (settings.publicReplyEnabled) {
+    let overCap = false;
+    try {
+      const recent = await store.countRecentDms(channel.id, new Date(Date.now() - HOUR_MS));
+      overCap = recent >= PUBLIC_REPLY_HOURLY_CAP;
+    } catch {
+      // Best-effort: if we can't count, treat it as under the cap.
+    }
+    if (overCap) {
+      problems.push(`public reply skipped: more than ${PUBLIC_REPLY_HOURLY_CAP} DMs in the last hour`);
+    } else {
+      try {
+        await meta.replyToComment(channel.id, ev.commentId, pickPublicReply(texts.publicReply, random));
+      } catch (err) {
+        problems.push(`public reply: ${errorText(err)}`);
+      }
+    }
   }
 
   if (problems.length > 0) {

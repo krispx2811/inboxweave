@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clip, handleComment, handleTap } from "../src/lib/comment-dm/flow.ts";
+import { PUBLIC_REPLY_HOURLY_CAP, clip, handleComment, handleTap } from "../src/lib/comment-dm/flow.ts";
 import { decodePayload, encodePayload } from "../src/lib/comment-dm/parse.ts";
-import { DEFAULT_TEXTS } from "../src/lib/comment-dm/texts.ts";
+import { DEFAULT_TEXTS, pickPublicReply } from "../src/lib/comment-dm/texts.ts";
 import type { CommentDmSettings } from "../src/lib/comment-dm/types.ts";
 import { ACCOUNT_ID, comment, makeFakes, payloadOf, tap } from "./helpers/comment-dm-fakes.ts";
 
@@ -12,7 +12,7 @@ test("replies under the comment and sends the first DM with a button", async () 
 
   assert.deepEqual(f.sent.map((s) => s.kind), ["private", "public"]);
   assert.equal(f.sent[1]!.target, "c-1");
-  assert.equal(f.sent[1]!.text, DEFAULT_TEXTS.en.publicReply);
+  assert.ok(DEFAULT_TEXTS.en.publicReply.split("\n").includes(f.sent[1]!.text!));
   const dm = f.sent[0]!.msg!;
   assert.equal(dm.text, DEFAULT_TEXTS.en.opening);
   assert.equal(dm.button.title, DEFAULT_TEXTS.en.openingButton);
@@ -34,7 +34,7 @@ test("replies under the comment and sends the first DM with a button", async () 
 test("answers an Arabic comment in Arabic", async () => {
   const f = makeFakes();
   await handleComment(comment({ text: "كم السعر؟" }), f.deps);
-  assert.equal(f.sent[1]!.text, DEFAULT_TEXTS.ar.publicReply);
+  assert.ok(DEFAULT_TEXTS.ar.publicReply.split("\n").includes(f.sent[1]!.text!));
   assert.equal(f.sent[0]!.msg!.text, DEFAULT_TEXTS.ar.opening);
   assert.equal([...f.events.values()][0]!.language, "ar");
 });
@@ -194,4 +194,43 @@ test("a long comment is stored clipped to 500 code points", async () => {
   };
   await handleComment(comment({ text: "😀".repeat(600) }), f.deps);
   assert.equal(stored, "😀".repeat(500));
+});
+
+test("the public reply is the variant picked with the injected random", async () => {
+  const f = makeFakes({ settings: { texts: { en: { publicReply: "one\ntwo\nthree" } } } });
+  f.deps.random = () => 0.5;
+  await handleComment(comment(), f.deps);
+  assert.equal(f.sent[1]!.text, "two");
+  assert.equal(pickPublicReply("one\ntwo\nthree", () => 0.5), "two");
+});
+
+test("the inbox copy is saved before the public reply", async () => {
+  const f = makeFakes();
+  await handleComment(comment(), f.deps);
+  assert.deepEqual(f.calls, ["private", "inbox", "public"]);
+});
+
+test("at the hourly cap the public reply is skipped but the DM still goes out", async () => {
+  const f = makeFakes();
+  f.state.recentDms = PUBLIC_REPLY_HOURLY_CAP;
+  assert.equal(await handleComment(comment(), f.deps), "dm_sent");
+  assert.deepEqual(f.sent.map((s) => s.kind), ["private"]);
+  const [event] = [...f.events.values()];
+  assert.equal(event!.status, "dm_sent");
+  assert.match(event!.error!, /public reply skipped: more than 30 DMs in the last hour/);
+});
+
+test("just under the cap the public reply still goes out", async () => {
+  const f = makeFakes();
+  f.state.recentDms = PUBLIC_REPLY_HOURLY_CAP - 1;
+  await handleComment(comment(), f.deps);
+  assert.deepEqual(f.sent.map((s) => s.kind), ["private", "public"]);
+});
+
+test("if counting recent DMs fails, the public reply is still sent", async () => {
+  const f = makeFakes();
+  f.state.recentDms = "db down";
+  assert.equal(await handleComment(comment(), f.deps), "dm_sent");
+  assert.deepEqual(f.sent.map((s) => s.kind), ["private", "public"]);
+  assert.equal([...f.events.values()][0]!.error, null);
 });

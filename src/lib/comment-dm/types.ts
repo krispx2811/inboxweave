@@ -140,6 +140,8 @@ export interface CommentDmStore {
   ensureConversation(input: ConversationInput): Promise<string>;
   /** "duplicate" when a message with the same platform id already exists. */
   logMessage(msg: InboxMessage): Promise<"inserted" | "duplicate">;
+  /** This channel's events created at or after `since` whose status isn't "failed" or "pending". */
+  countRecentDms(channelId: string, since: Date): Promise<number>;
 }
 
 /** Instagram calls the flow needs. Real one: meta.ts. Tests pass a fake. */
@@ -153,4 +155,6 @@ export interface CommentDmMeta {
 export interface CommentDmDeps {
   store: CommentDmStore;
   meta: CommentDmMeta;
+  /** Random source for picking a public reply variant; tests inject one. Default Math.random. */
+  random?: () => number;
 }

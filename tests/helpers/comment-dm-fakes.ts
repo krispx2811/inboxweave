@@ -60,6 +60,8 @@ export function makeFakes(opts: FakeOptions = {}) {
     stalePending: boolean;
     failEnsureConversation?: string;
     failLogMessage?: "in" | "out";
+    /** Overrides the count countRecentDms returns; a string makes it throw. */
+    recentDms?: number | string;
   } = {
     settings: opts.settings === null ? null : { ...baseSettings, ...opts.settings },
     follow: opts.follow ?? { ok: true, follows: true },
@@ -70,6 +72,8 @@ export function makeFakes(opts: FakeOptions = {}) {
   const events = new Map<string, DmEvent>();
   const messages: InboxMessage[] = [];
   const sent: SentCall[] = [];
+  /** Order of the calls that matter for sequencing: "private", "inbox", "public". */
+  const calls: string[] = [];
   let followChecks = 0;
   let nextEventId = 1;
   let nextMid = 1;
@@ -126,7 +130,13 @@ export function makeFakes(opts: FakeOptions = {}) {
         const e = events.get(id);
         if (e) events.set(id, { ...e, ...patch });
       },
+      async countRecentDms() {
+        if (typeof state.recentDms === "string") throw new Error(state.recentDms);
+        if (state.recentDms !== undefined) return state.recentDms;
+        return [...events.values()].filter((e) => e.status !== "failed" && e.status !== "pending").length;
+      },
       async ensureConversation() {
+        calls.push("inbox");
         if (state.failEnsureConversation) throw new Error(state.failEnsureConversation);
         return "conv-1";
       },
@@ -141,10 +151,12 @@ export function makeFakes(opts: FakeOptions = {}) {
     },
     meta: {
       async replyToComment(_channelId, commentId, text) {
+        calls.push("public");
         if (opts.publicReplyError) throw new Error(opts.publicReplyError);
         sent.push({ kind: "public", target: commentId, text });
       },
       async sendPrivateReply(_channelId, commentId, msg) {
+        calls.push("private");
         if (state.privateReplyError) throw new Error(state.privateReplyError);
         sent.push({ kind: "private", target: commentId, msg });
         return {
@@ -164,7 +176,7 @@ export function makeFakes(opts: FakeOptions = {}) {
     },
   };
 
-  return { deps, channel, state, events, messages, sent, followChecks: () => followChecks };
+  return { deps, channel, state, events, messages, sent, calls, followChecks: () => followChecks };
 }
 
 export function comment(over: Partial<CommentEvent> = {}): CommentEvent {

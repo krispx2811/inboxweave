@@ -7,6 +7,7 @@ import {
   isHttpsUrl,
   parseSettingsForm,
   pickLanguage,
+  pickPublicReply,
   resolveTexts,
   textFieldName,
 } from "../src/lib/comment-dm/texts.ts";
@@ -39,6 +40,11 @@ test("default texts exist and fit Meta's limits in both languages", () => {
       const text = DEFAULT_TEXTS[lang][key];
       assert.ok(text.length > 0, `${lang}.${key} is empty`);
       assert.ok(text.length <= TEXT_LIMITS[key], `${lang}.${key} is too long`);
+      if (key === "publicReply") {
+        const lines = text.split("\n");
+        assert.equal(lines.length, 3, `${lang}.publicReply should have three variants`);
+        for (const line of lines) assert.ok(line.length > 0 && line.length <= 300, `${lang} reply line too long`);
+      }
     }
   }
 });
@@ -131,4 +137,42 @@ test("textarea line breaks submitted as CRLF count as one character", () => {
   const result = parseSettingsForm(form({ linkUrl: "", defaultLanguage: "en", [textFieldName("en", "opening")]: body }));
   assert.ok(result.success);
   assert.equal(result.data.texts.en.opening, "ab\n".repeat(200).trim());
+});
+
+test("pickPublicReply returns the only line, ignoring blank lines and spaces", () => {
+  assert.equal(pickPublicReply("Sent you a DM"), "Sent you a DM");
+  assert.equal(pickPublicReply("\n  Hello  \n\n"), "Hello");
+});
+
+test("pickPublicReply picks one of several lines using the random value", () => {
+  const text = "one\n\n two \nthree";
+  assert.equal(pickPublicReply(text, () => 0), "one");
+  assert.equal(pickPublicReply(text, () => 0.5), "two");
+  assert.equal(pickPublicReply(text, () => 0.99), "three");
+  assert.equal(pickPublicReply(text, () => 1), "three");
+});
+
+test("a public reply line over 300 characters gets a readable message", () => {
+  const bad = parseSettingsForm(form({
+    linkUrl: "",
+    defaultLanguage: "en",
+    [textFieldName("en", "publicReply")]: `ok\n${"a".repeat(301)}`,
+  }));
+  assert.equal(bad.success, false);
+  assert.match(bad.error!.issues[0]!.message, /Each public reply \(English\) can be at most 300 characters/);
+
+  const good = parseSettingsForm(form({
+    linkUrl: "",
+    defaultLanguage: "en",
+    [textFieldName("en", "publicReply")]: `${"a".repeat(300)}\n${"b".repeat(300)}`,
+  }));
+  assert.ok(good.success);
+
+  const whole = parseSettingsForm(form({
+    linkUrl: "",
+    defaultLanguage: "en",
+    [textFieldName("en", "publicReply")]: Array.from({ length: 8 }, () => "a".repeat(250)).join("\n"),
+  }));
+  assert.equal(whole.success, false);
+  assert.match(whole.error!.issues[0]!.message, /at most 1500 characters/);
 });

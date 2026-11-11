@@ -145,6 +145,17 @@ export function createStore(admin: Admin = createSupabaseAdminClient()): Comment
       if (error) throw new Error(error.message);
     },
 
+    async countRecentDms(channelId, since) {
+      const { count, error } = await admin
+        .from("comment_dm_events")
+        .select("id", { count: "exact", head: true })
+        .eq("channel_id", channelId)
+        .gte("created_at", since.toISOString())
+        .not("status", "in", "(failed,pending)");
+      if (error) throw new Error(error.message);
+      return count ?? 0;
+    },
+
     async ensureConversation(input) {
       const { data, error } = await admin
         .from("conversations")

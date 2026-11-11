@@ -4,7 +4,7 @@ import { TEXT_KEYS, type Lang, type SavedTexts, type TextKey, type Texts } from 
 /** Default texts, used for any field the owner leaves empty. */
 export const DEFAULT_TEXTS: Record<Lang, Texts> = {
   en: {
-    publicReply: "Sent you a DM 📩",
+    publicReply: "Sent you a DM 📩\nCheck your DMs 📩\nJust sent it to your DMs 👀",
     opening: "Hey! Thanks for your comment 🙌 Tap the button below and I'll send you the link.",
     openingButton: "Send me the link",
     followFirst:
@@ -14,7 +14,7 @@ export const DEFAULT_TEXTS: Record<Lang, Texts> = {
     linkButton: "Open link",
   },
   ar: {
-    publicReply: "أرسلنا لك رسالة على الخاص 📩",
+    publicReply: "أرسلنا لك رسالة على الخاص 📩\nتفقد رسائلك الخاصة 📩\nأرسلنا لك التفاصيل على الخاص 👀",
     opening: "أهلاً! شكراً على تعليقك 🙌 اضغط الزر تحت ونرسل لك الرابط.",
     openingButton: "أرسل لي الرابط",
     followFirst: "باقي خطوة! تابع حسابنا أولاً، بعدها اضغط الزر تحت ونرسل لك الرابط مباشرة.",
@@ -24,9 +24,12 @@ export const DEFAULT_TEXTS: Record<Lang, Texts> = {
   },
 };
 
-/** Meta's limits: button labels 20, template text 640. Public replies kept short. */
+/** Longest single public reply (one line of the public reply field). */
+export const PUBLIC_REPLY_LINE_LIMIT = 300;
+
+/** Meta's limits: button labels 20, template text 640. The public reply field holds several lines. */
 export const TEXT_LIMITS: Record<TextKey, number> = {
-  publicReply: 300,
+  publicReply: 1500,
   opening: 640,
   openingButton: 20,
   followFirst: 640,
@@ -56,6 +59,23 @@ export function pickLanguage(commentText: string, fallback: Lang): Lang {
   if (/(?=\p{Script=Arabic})\p{L}/u.test(words)) return "ar";
   if (/\p{L}/u.test(words)) return "en";
   return fallback;
+}
+
+/** The non-empty, trimmed lines of the public reply field: one reply per line. */
+export function publicReplyLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/** One of the public replies, chosen at random, so Instagram doesn't see the same text hundreds of times. */
+export function pickPublicReply(text: string, random: () => number = Math.random): string {
+  const lines = publicReplyLines(text);
+  if (lines.length === 0) return text.trim();
+  if (lines.length === 1) return lines[0]!;
+  const index = Math.min(lines.length - 1, Math.max(0, Math.floor(random() * lines.length)));
+  return lines[index]!;
 }
 
 /** The texts to send in `lang`: the owner's non-empty texts over the defaults. */
@@ -108,7 +128,10 @@ function textField(key: TextKey, lang: Lang) {
 
 function langTextsSchema(lang: Lang) {
   const shape = {
-    publicReply: textField("publicReply", lang),
+    publicReply: textField("publicReply", lang).refine(
+      (v) => publicReplyLines(v).every((line) => line.length <= PUBLIC_REPLY_LINE_LIMIT),
+      `Each public reply (${LANG_NAMES[lang]}) can be at most ${PUBLIC_REPLY_LINE_LIMIT} characters`,
+    ),
     opening: textField("opening", lang),
     openingButton: textField("openingButton", lang),
     followFirst: textField("followFirst", lang),

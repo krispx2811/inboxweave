@@ -1,8 +1,8 @@
 import { resolveTexts, TEXT_LABELS, TEXT_LIMITS, textFieldName } from "@/lib/comment-dm/texts";
 import { TEXT_KEYS, type SavedTexts, type TextKey } from "@/lib/comment-dm/types";
 
-// Button labels and the public reply are one line; the DMs get a textarea.
-const ONE_LINE: ReadonlySet<TextKey> = new Set<TextKey>(["publicReply", "openingButton", "followedButton", "linkButton"]);
+// Button labels are one line; the public reply (one reply per line) and the DMs get a textarea.
+const ONE_LINE: ReadonlySet<TextKey> = new Set<TextKey>(["openingButton", "followedButton", "linkButton"]);
 
 export function TextFields({ saved }: { saved: SavedTexts }) {
   const en = resolveTexts(saved, "en");
@@ -38,6 +38,11 @@ function Field({ label, name, value, textKey, rtl }: { label: string; name: stri
   return (
     <div>
       <label className="label" htmlFor={name}>{label}</label>
+      {textKey === "publicReply" && (
+        <p className="mb-1 text-[10px] text-slate-400">
+          One reply per line. Each comment gets one at random, so Instagram doesn&apos;t see the same text hundreds of times.
+        </p>
+      )}
       {ONE_LINE.has(textKey) ? <input {...props} /> : <textarea {...props} />}
     </div>
   );

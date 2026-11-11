@@ -104,7 +104,7 @@ the channel has no comment access (see "Permissions and reconnect").
 
 | Key | English | Arabic |
 |---|---|---|
-| `publicReply` | Sent you a DM 📩 | أرسلنا لك رسالة على الخاص 📩 |
+| `publicReply` (three variants, one per line; one is picked at random) | Sent you a DM 📩<br>Check your DMs 📩<br>Just sent it to your DMs 👀 | أرسلنا لك رسالة على الخاص 📩<br>تفقد رسائلك الخاصة 📩<br>أرسلنا لك التفاصيل على الخاص 👀 |
 | `opening` | Hey! Thanks for your comment 🙌 Tap the button below and I'll send you the link. | أهلاً! شكراً على تعليقك 🙌 اضغط الزر تحت ونرسل لك الرابط. |
 | `openingButton` | Send me the link | أرسل لي الرابط |
 | `followFirst` | Almost there! Follow our account first, then tap the button below and I'll send you the link right away. | باقي خطوة! تابع حسابنا أولاً، بعدها اضغط الزر تحت ونرسل لك الرابط مباشرة. |
