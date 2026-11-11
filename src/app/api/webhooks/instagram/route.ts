@@ -13,6 +13,8 @@ import {
   getMetaCredentials,
 } from "@/lib/channels/meta-settings";
 import { logWebhookDebug } from "@/lib/channels/debug-log";
+import { parseCommentEvents, parseTapEvents } from "@/lib/comment-dm/parse";
+import { processCommentEvents, processTapEvents } from "@/lib/comment-dm";
 
 export const runtime = "nodejs";
 
@@ -60,8 +62,11 @@ export async function POST(req: NextRequest) {
   }
 
   const messages = parseInstagramWebhook(body);
+  const comments = parseCommentEvents(body);
+  const taps = parseTapEvents(body);
+  const parsedCount = messages.length + comments.length + taps.length;
 
-  if (messages.length === 0) {
+  if (parsedCount === 0) {
     logWebhookDebug({
       platform: "instagram", method: "POST", statusCode: 200,
       parsedCount: 0, rawBody: raw, error: "no parseable messages (may be a non-message event)",
@@ -69,7 +74,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const firstPageId = messages[0]!.pageId;
+  // Any event in the delivery names the account; they all come from one app.
+  const firstPageId = messages[0]?.pageId ?? comments[0]?.accountId ?? taps[0]!.accountId;
   const orgId = await findOrgByChannelExternalId(firstPageId, "instagram");
 
   // No channel matches this external_id. Most likely this is Meta's Test
@@ -79,7 +85,7 @@ export async function POST(req: NextRequest) {
   if (!orgId) {
     logWebhookDebug({
       platform: "instagram", method: "POST", statusCode: 200,
-      parsedCount: messages.length, rawBody: raw,
+      parsedCount, rawBody: raw,
       error: `no channel matches external_id=${firstPageId} — test payload or disconnected account?`,
     });
     return NextResponse.json({ ok: true, note: "no matching channel" });
@@ -92,7 +98,7 @@ export async function POST(req: NextRequest) {
   if (!appSecret) {
     logWebhookDebug({
       platform: "instagram", method: "POST", statusCode: 500,
-      parsedCount: messages.length, orgId, rawBody: raw,
+      parsedCount, orgId, rawBody: raw,
       error: `no app secret configured for org=${orgId}`,
     });
     return new NextResponse("not configured", { status: 500 });
@@ -102,12 +108,15 @@ export async function POST(req: NextRequest) {
   logWebhookDebug({
     platform: "instagram", method: "POST",
     statusCode: sigOk ? 200 : 401,
-    signatureOk: sigOk, parsedCount: messages.length, orgId, rawBody: raw,
+    signatureOk: sigOk, parsedCount, orgId, rawBody: raw,
     error: sigOk ? undefined : `signature mismatch`,
   });
   if (!sigOk) return new NextResponse("invalid signature", { status: 401 });
 
-  const scoped = await scopeToSigningOrg(messages, (m) => m.pageId, "instagram", creds ? orgId : null);
+  const signingOrg = creds ? orgId : null;
+  const scoped = await scopeToSigningOrg(messages, (m) => m.pageId, "instagram", signingOrg);
+  const scopedComments = await scopeToSigningOrg(comments, (c) => c.accountId, "instagram", signingOrg);
+  const scopedTaps = await scopeToSigningOrg(taps, (t) => t.accountId, "instagram", signingOrg);
 
   // Defer the heavy lifting (AI generate + send + DB writes) until AFTER
   // the 200 response is out the door. Keeps us well under Meta's ~5s
@@ -161,6 +170,14 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error("[instagram webhook] background processing failed", err);
     }
+
+    // Comment-to-DM: new comments and button taps. Each event is isolated inside.
+    await processCommentEvents(scopedComments).catch((err) =>
+      console.error("[instagram webhook] comment-dm comments failed", err),
+    );
+    await processTapEvents(scopedTaps).catch((err) =>
+      console.error("[instagram webhook] comment-dm taps failed", err),
+    );
   });
 
   return NextResponse.json({ ok: true });
