@@ -212,17 +212,17 @@ test("the inbox copy is saved before the public reply", async () => {
 
 test("at the hourly cap the public reply is skipped but the DM still goes out", async () => {
   const f = makeFakes();
-  f.state.recentDms = PUBLIC_REPLY_HOURLY_CAP;
+  f.state.recentDms = PUBLIC_REPLY_HOURLY_CAP + 1;
   assert.equal(await handleComment(comment(), f.deps), "dm_sent");
   assert.deepEqual(f.sent.map((s) => s.kind), ["private"]);
   const [event] = [...f.events.values()];
   assert.equal(event!.status, "dm_sent");
-  assert.match(event!.error!, /public reply skipped: more than 30 DMs in the last hour/);
+  assert.equal(event!.error, null);
 });
 
-test("just under the cap the public reply still goes out", async () => {
+test("exactly at the cap the 30th public reply still goes out", async () => {
   const f = makeFakes();
-  f.state.recentDms = PUBLIC_REPLY_HOURLY_CAP - 1;
+  f.state.recentDms = PUBLIC_REPLY_HOURLY_CAP;
   await handleComment(comment(), f.deps);
   assert.deepEqual(f.sent.map((s) => s.kind), ["private", "public"]);
 });

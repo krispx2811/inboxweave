@@ -120,18 +120,17 @@ export async function handleComment(ev: CommentEvent, { store, meta, random }: C
   }
 
   // 4. The public reply is a nice-to-have, and only goes out once the DM did. Past the
-  // hourly cap it's skipped, so Instagram doesn't see hundreds of replies an hour.
+  // hourly cap (the count includes this DM, so exactly 30 replies an hour) it's skipped, so Instagram doesn't see hundreds of replies an hour.
   if (settings.publicReplyEnabled) {
     let overCap = false;
     try {
       const recent = await store.countRecentDms(channel.id, new Date(Date.now() - HOUR_MS));
-      overCap = recent >= PUBLIC_REPLY_HOURLY_CAP;
+      overCap = recent > PUBLIC_REPLY_HOURLY_CAP;
     } catch {
       // Best-effort: if we can't count, treat it as under the cap.
     }
-    if (overCap) {
-      problems.push(`public reply skipped: more than ${PUBLIC_REPLY_HOURLY_CAP} DMs in the last hour`);
-    } else {
+    // Skipped quietly: noting it on every event would flood the Warnings count in a burst.
+    if (!overCap) {
       try {
         await meta.replyToComment(channel.id, ev.commentId, pickPublicReply(texts.publicReply, random));
       } catch (err) {

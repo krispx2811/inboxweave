@@ -34,7 +34,7 @@
 9. **Comments and taps are processed 5 at a time** (a small worker pool in `pool.ts`), not one after another. Each event keeps its own try/catch.
 10. **The inbox copy is saved before the public reply**, so the platform message id is stored before Instagram's echo of the DM arrives.
 11. **The public reply picks one of several lines at random.** The field holds one reply per line (each up to 300 characters, 1500 in total), and the defaults have three per language.
-12. **Public replies stop for the hour after 30 DMs in the last 60 minutes** (the DMs continue, and the event notes the skip). The settings page shows a Warnings count for partial failures and rows stuck in `pending`.
+12. **Public replies stop for the hour once 30 have gone out** (the count of DMs in the last 60 minutes includes the current one, so the 31st DM and later get no public reply; the DMs continue, and the skip is not recorded on the event). The settings page shows a Warnings count for partial failures and rows stuck in `pending`.
 
 ## File structure
 

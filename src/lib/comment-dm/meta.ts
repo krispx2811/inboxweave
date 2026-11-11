@@ -61,7 +61,12 @@ class GraphError extends Error {
   }
 }
 
-async function graph<T = unknown>(ctx: Ctx, path: string, call: GraphCall): Promise<T> {
+async function graph<T = unknown>(
+  ctx: Ctx,
+  path: string,
+  call: GraphCall,
+  dead: Map<string, string>,
+): Promise<T> {
   const url = new URL(`${GRAPH}/${path}`);
   let res: Response;
   if (call.method === "GET") {
@@ -83,12 +88,16 @@ async function graph<T = unknown>(ctx: Ctx, path: string, call: GraphCall): Prom
     const tokenError = code === 190 || isTokenError(message);
     if (tokenError) {
       invalidateCachedDecryptedToken(ctx.channelId);
-      await markChannelUnhealthy({
-        channelId: ctx.channelId,
-        orgId: ctx.orgId,
-        platform: "instagram",
-        error: message,
-      }).catch(() => {});
+      // Only the first lane to see the dead token marks the channel (one disconnect email).
+      if (!dead.has(ctx.channelId)) {
+        dead.set(ctx.channelId, message);
+        await markChannelUnhealthy({
+          channelId: ctx.channelId,
+          orgId: ctx.orgId,
+          platform: "instagram",
+          error: message,
+        }).catch(() => {});
+      }
     }
     throw new GraphError(message, tokenError);
   }
@@ -110,7 +119,11 @@ export function createMeta(): CommentDmMeta {
     }
     return pending;
   };
+  // Channels whose token died during this batch: later calls fail at once, with no Graph call.
+  const dead = new Map<string, string>();
   const call = async <T>(channelId: string, run: (ctx: Ctx) => Promise<T>): Promise<T> => {
+    const known = dead.get(channelId);
+    if (known !== undefined) throw new GraphError(known, true);
     const ctx = await ctxFor(channelId);
     try {
       return await run(ctx);
@@ -123,7 +136,7 @@ export function createMeta(): CommentDmMeta {
   return {
     async replyToComment(channelId, commentId, text) {
       await call(channelId, (ctx) =>
-        graph(ctx, `${encodeURIComponent(commentId)}/replies`, { method: "POST", body: { message: text } }),
+        graph(ctx, `${encodeURIComponent(commentId)}/replies`, { method: "POST", body: { message: text } }, dead),
       );
     },
 
@@ -132,7 +145,7 @@ export function createMeta(): CommentDmMeta {
         graph<{ recipient_id?: string; message_id?: string }>(ctx, "me/messages", {
           method: "POST",
           body: { recipient: { comment_id: commentId }, message: templateMessage(msg) },
-        }),
+        }, dead),
       );
       return { messageId: res.message_id, recipientId: res.recipient_id };
     },
@@ -142,7 +155,7 @@ export function createMeta(): CommentDmMeta {
         graph<{ recipient_id?: string; message_id?: string }>(ctx, "me/messages", {
           method: "POST",
           body: { recipient: { id: recipientId }, message: templateMessage(msg) },
-        }),
+        }, dead),
       );
       return { messageId: res.message_id, recipientId: res.recipient_id };
     },
@@ -153,7 +166,7 @@ export function createMeta(): CommentDmMeta {
           graph<{ is_user_follow_business?: unknown }>(ctx, encodeURIComponent(igsid), {
             method: "GET",
             query: { fields: "is_user_follow_business" },
-          }),
+          }, dead),
         );
         if (typeof res.is_user_follow_business !== "boolean") {
           return { ok: false, error: "follow status missing from Instagram's answer" };
