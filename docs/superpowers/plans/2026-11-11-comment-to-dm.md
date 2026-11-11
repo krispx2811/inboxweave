@@ -28,6 +28,9 @@
 3. **The link is validated with a pure https check** (`isHttpsUrl`), not `assertPublicHttpsUrl`. We send the link to Instagram and never fetch it, so the DNS-based SSRF check doesn't apply.
 4. **The normal Connect button keeps comment access once an org has it.** If any Instagram channel in the org already granted comment access, the Channels page asks for it again on reconnect. Otherwise, reconnecting after a password change would silently switch Comment to DM off.
 5. **When a tap finds no link** it returns the outcome `no_link` (the event status is still `failed`, as in the spec).
+6. **The private DM is sent before the public reply**, and the public reply only goes out if the DM did. Its "sent you a DM" text is then always true, and a failed DM can't loop public replies.
+7. **`dm_sent` and `recipientId` are saved right after Meta accepts the DM.** The inbox copy (conversation and message) is best-effort and only adds an `inbox: ...` note to the event's error. The same goes for the tap's link message: the event is updated first, then the outgoing message is logged best-effort.
+8. **Stored errors are clipped to 300 code points** (not UTF-16 units), prefixes included, so emoji are never split.
 
 ## File structure
 
@@ -195,9 +198,9 @@ git commit -m "Add a script to check Instagram's comment and button APIs by hand
 
 1. In the Meta app, add the `comments` and `messaging_postbacks` webhook fields, add `instagram_business_manage_comments` to the Instagram use case, and generate a token for the test account.
 2. `node scripts/verify-comment-dm.mjs subscribe` → expect `{"success":true}`.
-3. From a second Instagram account, comment on a post of the test account. Run `node scripts/verify-comment-dm.mjs comments` and note the comment id. In InboxWeave, **Settings → Debug** shows the raw comment webhook. Compare it with the spec's expected payload.
+3. From a second Instagram account, comment on a post of the test account. Run `node scripts/verify-comment-dm.mjs comments` and note the comment id. Also note whether a comment the test account itself posts has `from.id` equal to the account id (the `17841...` id): the own-comment check relies on it. In InboxWeave, **Settings → Debug** shows the raw comment webhook. Compare it with the spec's expected payload.
 4. `public-reply <commentId>` → the reply shows under the comment. If it fails, try `public-reply <commentId> query`.
-5. `private-reply <commentId>` → a DM with a button arrives on the second account. If Meta rejects the template, comment again and run `private-reply <newCommentId> generic` (Meta allows one private reply per comment).
+5. `private-reply <commentId>` → a DM with a button arrives on the second account. Also note whether the response includes `recipient_id`: the flow falls back to the commenter's id when it doesn't. If Meta rejects the template, comment again and run `private-reply <newCommentId> generic` (Meta allows one private reply per comment).
 6. Tap the button on the second account. **Settings → Debug** shows the raw tap webhook. Note `sender.id` (the IGSID) and compare the shape with the spec.
 7. `follow <igsid>` while the second account doesn't follow, then again after it follows. Expect `is_user_follow_business` to be `false`, then `true`.
 8. `link <igsid> https://example.com` → a DM with an **Open link** button.

@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { handleComment } from "../src/lib/comment-dm/flow.ts";
-import { decodePayload } from "../src/lib/comment-dm/parse.ts";
+import { clip, handleComment, handleTap } from "../src/lib/comment-dm/flow.ts";
+import { decodePayload, encodePayload } from "../src/lib/comment-dm/parse.ts";
 import { DEFAULT_TEXTS } from "../src/lib/comment-dm/texts.ts";
 import type { CommentDmSettings } from "../src/lib/comment-dm/types.ts";
-import { ACCOUNT_ID, comment, makeFakes, payloadOf } from "./helpers/comment-dm-fakes.ts";
+import { ACCOUNT_ID, comment, makeFakes, payloadOf, tap } from "./helpers/comment-dm-fakes.ts";
 
 test("replies under the comment and sends the first DM with a button", async () => {
   const f = makeFakes();
   assert.equal(await handleComment(comment(), f.deps), "dm_sent");
 
-  assert.deepEqual(f.sent.map((s) => s.kind), ["public", "private"]);
-  assert.equal(f.sent[0]!.target, "c-1");
-  assert.equal(f.sent[0]!.text, DEFAULT_TEXTS.en.publicReply);
-  const dm = f.sent[1]!.msg!;
+  assert.deepEqual(f.sent.map((s) => s.kind), ["private", "public"]);
+  assert.equal(f.sent[1]!.target, "c-1");
+  assert.equal(f.sent[1]!.text, DEFAULT_TEXTS.en.publicReply);
+  const dm = f.sent[0]!.msg!;
   assert.equal(dm.text, DEFAULT_TEXTS.en.opening);
   assert.equal(dm.button.title, DEFAULT_TEXTS.en.openingButton);
 
@@ -34,22 +34,22 @@ test("replies under the comment and sends the first DM with a button", async () 
 test("answers an Arabic comment in Arabic", async () => {
   const f = makeFakes();
   await handleComment(comment({ text: "كم السعر؟" }), f.deps);
-  assert.equal(f.sent[0]!.text, DEFAULT_TEXTS.ar.publicReply);
-  assert.equal(f.sent[1]!.msg!.text, DEFAULT_TEXTS.ar.opening);
+  assert.equal(f.sent[1]!.text, DEFAULT_TEXTS.ar.publicReply);
+  assert.equal(f.sent[0]!.msg!.text, DEFAULT_TEXTS.ar.opening);
   assert.equal([...f.events.values()][0]!.language, "ar");
 });
 
 test("uses the account's default language when the comment has no words", async () => {
   const f = makeFakes({ settings: { defaultLanguage: "ar" } });
   await handleComment(comment({ text: "🔥🔥" }), f.deps);
-  assert.equal(f.sent[1]!.msg!.text, DEFAULT_TEXTS.ar.opening);
+  assert.equal(f.sent[0]!.msg!.text, DEFAULT_TEXTS.ar.opening);
 });
 
 test("uses the owner's own texts when set", async () => {
   const f = makeFakes({ settings: { texts: { en: { opening: "Want the trial? Tap below." } } } });
   await handleComment(comment(), f.deps);
-  assert.equal(f.sent[1]!.msg!.text, "Want the trial? Tap below.");
-  assert.equal(f.sent[1]!.msg!.button.title, DEFAULT_TEXTS.en.openingButton);
+  assert.equal(f.sent[0]!.msg!.text, "Want the trial? Tap below.");
+  assert.equal(f.sent[0]!.msg!.button.title, DEFAULT_TEXTS.en.openingButton);
 });
 
 test("ignores the account's own comments, by id or by username", async () => {
@@ -95,6 +95,7 @@ test("a failed DM is saved, and the person's next comment on that post retries i
   assert.equal(failed!.status, "failed");
   assert.equal(failed!.error, "Rate limit hit (code 4)");
   assert.equal(f.messages.length, 0);
+  assert.equal(f.sent.length, 0, "no public reply when the DM failed");
 
   f.state.privateReplyError = undefined;
   assert.equal(await handleComment(comment({ commentId: "c-2" }), f.deps), "dm_sent");
@@ -118,4 +119,79 @@ test("falls back to the commenter's id when Meta returns no recipient id", async
   const f = makeFakes({ recipientId: null });
   await handleComment(comment(), f.deps);
   assert.equal([...f.events.values()][0]!.recipientId, "commenter-1");
+});
+
+test("if saving the inbox copy fails after the DM, the DM is still recorded and the button works", async () => {
+  for (const hook of ["ensure", "log"] as const) {
+    const f = makeFakes();
+    if (hook === "ensure") f.state.failEnsureConversation = "db down";
+    else f.state.failLogMessage = "out";
+    assert.equal(await handleComment(comment(), f.deps), "dm_sent");
+    const event = [...f.events.values()][0]!;
+    assert.equal(event.status, "dm_sent");
+    assert.equal(event.recipientId, "igsid-1");
+    assert.match(event.error ?? "", /^inbox:/);
+    assert.deepEqual(f.sent.map((s) => s.kind), ["private", "public"]);
+
+    f.state.failEnsureConversation = undefined;
+    f.state.failLogMessage = undefined;
+    f.sent.length = 0;
+    assert.equal(await handleTap(tap(encodePayload(event.id)), f.deps), "link_sent");
+  }
+});
+
+test("a stale pending row is retried by the next comment, a dm_sent row never is", async () => {
+  const f = makeFakes();
+  f.state.stalePending = true;
+  const claimed = await f.deps.store.claimEvent({
+    orgId: "org-1",
+    channelId: "ch-1",
+    mediaId: "media-1",
+    commenterId: "commenter-1",
+    commenterUsername: "sara",
+    commentId: "c-0",
+    commentText: "hi",
+    language: "en",
+  });
+  assert.equal(claimed!.status, "pending"); // left pending: the process died
+  assert.equal(await handleComment(comment({ commentId: "c-2" }), f.deps), "dm_sent");
+  assert.equal(f.events.size, 1);
+  assert.equal(await handleComment(comment({ commentId: "c-3" }), f.deps), "already_sent");
+  assert.equal(f.sent.filter((s) => s.kind === "private").length, 1);
+});
+
+test("stored errors are at most 300 code points and never split an emoji", async () => {
+  const f = makeFakes({ privateReplyError: "x".repeat(1000) });
+  await handleComment(comment(), f.deps);
+  assert.equal(Array.from([...f.events.values()][0]!.error!).length, 300);
+
+  const g = makeFakes({ privateReplyError: "😀".repeat(400) });
+  await handleComment(comment(), g.deps);
+  const err = [...g.events.values()][0]!.error!;
+  assert.equal(Array.from(err).length, 300);
+  assert.equal(err, "😀".repeat(300));
+
+  const h = makeFakes({ publicReplyError: "😀".repeat(400) });
+  await handleComment(comment(), h.deps);
+  const combined = [...h.events.values()][0]!.error!;
+  assert.equal(Array.from(combined).length, 300);
+  assert.ok(combined.startsWith("public reply: "));
+});
+
+test("clip cuts by code points", () => {
+  assert.equal(clip("abc", 5), "abc");
+  assert.equal(clip("😀😀😀", 2), "😀😀");
+  assert.equal(Array.from(clip("a".repeat(500))).length, 300);
+});
+
+test("a long comment is stored clipped to 500 code points", async () => {
+  const f = makeFakes();
+  let stored = "";
+  const orig = f.deps.store.claimEvent;
+  f.deps.store.claimEvent = async (input) => {
+    stored = input.commentText;
+    return orig(input);
+  };
+  await handleComment(comment({ text: "😀".repeat(600) }), f.deps);
+  assert.equal(stored, "😀".repeat(500));
 });

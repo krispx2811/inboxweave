@@ -23,9 +23,14 @@ export type CommentOutcome =
   | "dm_sent"
   | "failed";
 
+/** Cut to `max` code points (not UTF-16 units), so an emoji is never split. */
+export function clip(text: string, max = 300): string {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : chars.slice(0, max).join("");
+}
+
 export function errorText(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  return msg.slice(0, 300);
+  return clip(err instanceof Error ? err.message : String(err));
 }
 
 /** How a sent DM reads in the InboxWeave inbox. */
@@ -61,23 +66,14 @@ export async function handleComment(ev: CommentEvent, { store, meta }: CommentDm
     commenterId: ev.commenterId,
     commenterUsername: ev.commenterUsername ?? null,
     commentId: ev.commentId,
-    commentText: ev.text.slice(0, 500),
+    commentText: clip(ev.text, 500),
     language,
   });
   if (!event) return "already_sent";
 
   const texts = resolveTexts(settings.texts, language);
 
-  // The public reply is a nice-to-have: if it fails, still send the DM.
-  let publicReplyError: string | null = null;
-  if (settings.publicReplyEnabled) {
-    try {
-      await meta.replyToComment(channel.id, ev.commentId, texts.publicReply);
-    } catch (err) {
-      publicReplyError = `public reply: ${errorText(err)}`;
-    }
-  }
-
+  // 1. The DM first. If it fails nothing else goes out.
   const opening: ButtonMessage = {
     text: texts.opening,
     button: { type: "postback", title: texts.openingButton, payload: encodePayload(event.id) },
@@ -90,23 +86,46 @@ export async function handleComment(ev: CommentEvent, { store, meta }: CommentDm
     return "failed";
   }
 
+  // 2. Record it at once, so the button works even if everything after this fails.
   const recipientId = sent.recipientId ?? ev.commenterId;
-  const conversationId = await store.ensureConversation({
-    orgId: channel.orgId,
-    channelId: channel.id,
-    contactExternalId: recipientId,
-    contactUsername: ev.commenterUsername ?? null,
-    language,
-  });
-  await store.logMessage({
-    orgId: channel.orgId,
-    conversationId,
-    direction: "out",
-    sender: "ai",
-    content: inboxText(opening),
-    platformMessageId: sent.messageId ?? null,
-  });
-  await store.updateEvent(event.id, { status: "dm_sent", recipientId, conversationId, error: publicReplyError });
+  await store.updateEvent(event.id, { status: "dm_sent", recipientId });
+
+  const problems: string[] = [];
+
+  // 3. The public reply is a nice-to-have, and only goes out once the DM did.
+  if (settings.publicReplyEnabled) {
+    try {
+      await meta.replyToComment(channel.id, ev.commentId, texts.publicReply);
+    } catch (err) {
+      problems.push(`public reply: ${errorText(err)}`);
+    }
+  }
+
+  // 4. The inbox copy is best-effort too.
+  try {
+    const conversationId = await store.ensureConversation({
+      orgId: channel.orgId,
+      channelId: channel.id,
+      contactExternalId: recipientId,
+      contactUsername: ev.commenterUsername ?? null,
+      language,
+    });
+    await store.updateEvent(event.id, { conversationId });
+    await store.logMessage({
+      orgId: channel.orgId,
+      conversationId,
+      direction: "out",
+      sender: "ai",
+      content: inboxText(opening),
+      platformMessageId: sent.messageId ?? null,
+    });
+  } catch (err) {
+    problems.push(`inbox: ${errorText(err)}`);
+  }
+
+  if (problems.length > 0) {
+    await store.updateEvent(event.id, { error: clip(problems.join("; ")) }).catch(() => {});
+  }
   return "dm_sent";
 }
 
@@ -173,7 +192,7 @@ export async function handleTap(ev: TapEvent, { store, meta }: CommentDmDeps): P
   if (settings.requireFollow) {
     const follow = await meta.checkFollows(channel.id, ev.senderId);
     if (follow.ok) sendLink = follow.follows;
-    else followError = `follow check: ${follow.error}`; // fail open: send the link
+    else followError = clip(`follow check: ${follow.error}`); // fail open: send the link
   }
 
   const reply: ButtonMessage = sendLink
@@ -191,15 +210,21 @@ export async function handleTap(ev: TapEvent, { store, meta }: CommentDmDeps): P
     return "failed";
   }
 
-  await store.logMessage({
-    orgId: event.orgId,
-    conversationId,
-    direction: "out",
-    sender: "ai",
-    content: inboxText(reply),
-    platformMessageId: sent.messageId ?? null,
-  });
+  // Record the send first; the inbox copy is best-effort.
   const status = sendLink ? "link_sent" : "awaiting_follow";
   await store.updateEvent(event.id, { tapCount, conversationId, status, error: followError });
+  try {
+    await store.logMessage({
+      orgId: event.orgId,
+      conversationId,
+      direction: "out",
+      sender: "ai",
+      content: inboxText(reply),
+      platformMessageId: sent.messageId ?? null,
+    });
+  } catch (err) {
+    const error = clip([followError, `inbox: ${errorText(err)}`].filter(Boolean).join("; "));
+    await store.updateEvent(event.id, { error }).catch(() => {});
+  }
   return status;
 }

@@ -118,3 +118,55 @@ test("a failed send marks the event failed", async () => {
   assert.equal(f.events.get(event.id)!.status, "failed");
   assert.equal(f.events.get(event.id)!.error, "User can't receive messages");
 });
+
+test("a failing outgoing log doesn't undo the sent link", async () => {
+  const { f, event, payload } = await afterFirstDm();
+  f.state.failLogMessage = "out";
+  assert.equal(await handleTap(tap(payload), f.deps), "link_sent");
+  const updated = f.events.get(event.id)!;
+  assert.equal(updated.status, "link_sent");
+  assert.equal(updated.tapCount, 1);
+  assert.match(updated.error ?? "", /inbox:/);
+});
+
+test("works for an event with no conversation yet", async () => {
+  const { f, event, payload } = await afterFirstDm();
+  f.events.set(event.id, { ...event, conversationId: null });
+  assert.equal(await handleTap(tap(payload), f.deps), "link_sent");
+  assert.equal(f.events.get(event.id)!.conversationId, "conv-1");
+});
+
+test("no settings at tap time counts as no link", async () => {
+  const { f, payload } = await afterFirstDm();
+  f.state.settings = null;
+  assert.equal(await handleTap(tap(payload), f.deps), "no_link");
+});
+
+test("a mismatched tap logs nothing and leaves the tap count alone", async () => {
+  const { f, event, payload } = await afterFirstDm();
+  const logged = f.messages.length;
+  assert.equal(await handleTap(tap(payload, { senderId: "someone-else" }), f.deps), "mismatch");
+  assert.equal(f.messages.length, logged);
+  assert.equal(f.events.get(event.id)!.tapCount, 0);
+});
+
+test("the tap after the limit is refused and counted", async () => {
+  const { f, event, payload } = await afterFirstDm({ follow: { ok: true, follows: false } });
+  for (let i = 1; i <= MAX_TAPS; i++) await handleTap(tap(payload, { mid: `tap-${i}` }), f.deps);
+  assert.equal(await handleTap(tap(payload, { mid: "tap-11" }), f.deps), "tap_limit");
+  assert.equal(f.events.get(event.id)!.tapCount, MAX_TAPS + 1);
+});
+
+test("a long send error is stored clipped to 300 code points", async () => {
+  const { f, event, payload } = await afterFirstDm({ dmError: "😀".repeat(500) });
+  assert.equal(await handleTap(tap(payload), f.deps), "failed");
+  assert.equal(f.events.get(event.id)!.error, "😀".repeat(300));
+});
+
+test("a long follow-check error is clipped including its prefix", async () => {
+  const { f, event, payload } = await afterFirstDm({ follow: { ok: false, error: "y".repeat(1000) } });
+  assert.equal(await handleTap(tap(payload), f.deps), "link_sent");
+  const err = f.events.get(event.id)!.error!;
+  assert.equal(Array.from(err).length, 300);
+  assert.ok(err.startsWith("follow check: "));
+});

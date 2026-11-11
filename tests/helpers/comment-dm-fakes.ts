@@ -51,10 +51,21 @@ export function makeFakes(opts: FakeOptions = {}) {
     texts: {},
   };
   // Mutable so a test can change things between calls.
-  const state: { settings: CommentDmSettings | null; follow: FollowResult; privateReplyError?: string } = {
+  const state: {
+    settings: CommentDmSettings | null;
+    follow: FollowResult;
+    privateReplyError?: string;
+    dmError?: string;
+    /** Mimics the SQL's 10-minute rule: a row left `pending` can be claimed again. */
+    stalePending: boolean;
+    failEnsureConversation?: string;
+    failLogMessage?: "in" | "out";
+  } = {
     settings: opts.settings === null ? null : { ...baseSettings, ...opts.settings },
     follow: opts.follow ?? { ok: true, follows: true },
     privateReplyError: opts.privateReplyError,
+    dmError: opts.dmError,
+    stalePending: false,
   };
   const events = new Map<string, DmEvent>();
   const messages: InboxMessage[] = [];
@@ -78,9 +89,18 @@ export function makeFakes(opts: FakeOptions = {}) {
         const existing = [...events.values()].find(
           (e) => e.channelId === input.channelId && e.mediaId === input.mediaId && e.commenterId === input.commenterId,
         );
-        if (existing && existing.status !== "failed") return null;
+        if (existing && existing.status !== "failed" && !(state.stalePending && existing.status === "pending")) {
+          return null;
+        }
         const event: DmEvent = existing
-          ? { ...existing, commentId: input.commentId, language: input.language, status: "pending", error: null }
+          ? {
+              ...existing,
+              commentId: input.commentId,
+              commenterUsername: input.commenterUsername,
+              language: input.language,
+              status: "pending",
+              error: null,
+            }
           : {
               id: `00000000-0000-4000-8000-${String(nextEventId++).padStart(12, "0")}`,
               orgId: input.orgId,
@@ -107,9 +127,11 @@ export function makeFakes(opts: FakeOptions = {}) {
         if (e) events.set(id, { ...e, ...patch });
       },
       async ensureConversation() {
+        if (state.failEnsureConversation) throw new Error(state.failEnsureConversation);
         return "conv-1";
       },
       async logMessage(msg) {
+        if (state.failLogMessage === msg.direction) throw new Error("log failed");
         if (msg.platformMessageId && messages.some((m) => m.platformMessageId === msg.platformMessageId)) {
           return "duplicate";
         }
@@ -131,7 +153,7 @@ export function makeFakes(opts: FakeOptions = {}) {
         };
       },
       async sendButtonMessage(_channelId, recipientId, msg) {
-        if (opts.dmError) throw new Error(opts.dmError);
+        if (state.dmError) throw new Error(state.dmError);
         sent.push({ kind: "dm", target: recipientId, msg });
         return { messageId: `mid-${nextMid++}` };
       },
