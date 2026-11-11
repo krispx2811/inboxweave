@@ -3644,6 +3644,7 @@ Meta sends webhooks to the production URL, so this runs after migration 0021 is 
 
 - [ ] **Step 1:** Confirm migration 0021 is applied (Task 8), then deploy.
 - [ ] **Step 2:** Open **Channels → Instagram card → Comment to DM: Set up**, click **Reconnect to allow comment access**, and allow comments. Expect the green "Comment access allowed" banner. In the SQL editor, `select granted_scopes from channels where id = '<channelId>';` should include `instagram_business_manage_comments`. This answers the open question about the format of `permissions`.
+- [ ] **Step 2b:** Run `node scripts/verify-comment-dm.mjs me` with the account's token, or check in the Meta dashboard, that the account's subscribed fields include comments and messaging_postbacks (a 200 from subscribed_apps doesn't prove the fields were applied).
 - [ ] **Step 3:** Save a link and turn it on. The Channels card shows **On**.
 - [ ] **Step 4:** From a second account, comment `كم السعر؟` on a post → an Arabic public reply plus an Arabic DM with a button.
 - [ ] **Step 5:** On another post, comment `price?` → English. On a third, comment `🔥🔥` → the default language.

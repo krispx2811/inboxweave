@@ -142,7 +142,7 @@ export function textFieldName(lang: Lang, key: TextKey): string {
 export function parseSettingsForm(get: (name: string) => unknown) {
   const str = (name: string) => {
     const v = get(name);
-    return typeof v === "string" ? v : "";
+    return typeof v === "string" ? v.replace(/\r\n/g, "\n") : "";
   };
   const textsFor = (lang: Lang) =>
     Object.fromEntries(TEXT_KEYS.map((key) => [key, str(textFieldName(lang, key))]));

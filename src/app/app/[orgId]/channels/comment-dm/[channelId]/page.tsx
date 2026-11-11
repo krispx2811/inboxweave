@@ -72,7 +72,7 @@ export default async function CommentDmPage({
         <h1>Comment to DM</h1>
         <p>
           When someone comments on any post or reel of <strong>{name}</strong>, reply under the comment and DM them a
-          button. Tapping it sends your link, once they follow you.
+          button. Tapping it sends your link (once they follow you, if Require follow is on).
         </p>
       </div>
 
@@ -84,8 +84,8 @@ export default async function CommentDmPage({
         <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
           <div className="mb-1 font-semibold">This account needs comment access</div>
           <p className="mb-3 text-amber-800">
-            It was connected before Comment to DM existed, or comment access wasn&apos;t allowed. Reconnect it once and
-            allow access to comments.
+            It was connected before Comment to DM existed, comment access wasn&apos;t allowed, or signing up for comment
+            updates failed. Reconnect it once and allow access to comments.
           </p>
           {reconnectUrl ? (
             <a className="btn btn-sm" href={reconnectUrl}>Reconnect to allow comment access</a>
@@ -136,6 +136,8 @@ export default async function CommentDmPage({
               placeholder="https://"
               defaultValue={settings.linkUrl ?? ""}
               maxLength={2000}
+              pattern="https://.*"
+              title="Must start with https://"
             />
             <p className="mt-1 text-[10px] text-slate-400">
               What people get when they tap the button. Must start with https://
@@ -181,7 +183,7 @@ export default async function CommentDmPage({
                 <li key={f.id}>
                   <strong>{f.commenterUsername ? `@${f.commenterUsername}` : "Someone"}</strong>
                   {" — "}
-                  <span className="font-mono text-slate-600">{f.error ?? "unknown error"}</span>
+                  <span className="break-words font-mono text-slate-600">{f.error ?? "unknown error"}</span>
                 </li>
               ))}
             </ul>
@@ -200,7 +202,7 @@ function Banner({ tone, children }: { tone: "green" | "red"; children: React.Rea
 
 function Toggle({ name, checked, title, hint }: { name: string; checked: boolean; title: string; hint: string }) {
   return (
-    <label className="flex items-start gap-2 pt-6 text-sm">
+    <label className="flex items-start gap-2 text-sm sm:pt-6">
       <input type="checkbox" name={name} defaultChecked={checked} className="mt-0.5" />
       <span>
         <span className="font-medium">{title}</span>

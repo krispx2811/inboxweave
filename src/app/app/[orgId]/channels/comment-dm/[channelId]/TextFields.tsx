@@ -33,6 +33,7 @@ function Field({ label, name, value, textKey, rtl }: { label: string; name: stri
     defaultValue: value,
     maxLength: TEXT_LIMITS[textKey],
     dir: rtl ? "rtl" : undefined,
+    lang: rtl ? "ar" : undefined,
   };
   return (
     <div>

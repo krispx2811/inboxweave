@@ -125,3 +125,10 @@ test("non-string saved texts fall back instead of throwing", () => {
   assert.equal(texts.linkButton, DEFAULT_TEXTS.ar.linkButton);
   assert.deepEqual(compactTexts(bad as Parameters<typeof compactTexts>[0]), {});
 });
+
+test("textarea line breaks submitted as CRLF count as one character", () => {
+  const body = "ab\r\n".repeat(160); // 640 characters with CRLF, 480 once normalised
+  const result = parseSettingsForm(form({ linkUrl: "", defaultLanguage: "en", [textFieldName("en", "opening")]: body }));
+  assert.ok(result.success);
+  assert.equal(result.data.texts.en.opening, "ab\n".repeat(160).trim());
+});
