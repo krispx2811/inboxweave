@@ -5,14 +5,28 @@ import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 import { getMetaCredentials } from "@/lib/channels/meta-settings";
 import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
 import { verifyState } from "@/lib/auth/oauth-state";
+import {
+  hasCommentAccess,
+  igSubscribedFields,
+  parseGrantedScopes,
+  requestedIgScopes,
+  scopesAfterSubscribe,
+} from "@/lib/channels/ig-scopes";
 
 export const runtime = "nodejs";
 
-function redirectBack(req: NextRequest, orgId: string, status: string, detail?: string) {
+function redirectBack(
+  req: NextRequest,
+  orgId: string,
+  status: string,
+  detail?: string,
+  extra?: Record<string, string>,
+) {
   const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
   const url = new URL(`/app/${orgId}/channels`, base);
   url.searchParams.set("ig", status);
   if (detail) url.searchParams.set("msg", detail);
+  for (const [k, v] of Object.entries(extra ?? {})) url.searchParams.set(k, v);
   return NextResponse.redirect(url);
 }
 
@@ -41,6 +55,7 @@ export async function GET(req: NextRequest) {
   const decoded = verifyState(state);
   if (!decoded) return new NextResponse("bad state", { status: 400 });
   const orgId = decoded.orgId;
+  const withComments = decoded.withComments === true;
 
   const ctx = await requireOrgMember(orgId);
   if (ctx.userId !== decoded.uid) return new NextResponse("bad state", { status: 400 });
@@ -79,7 +94,7 @@ export async function GET(req: NextRequest) {
   let tokenJson: {
     access_token?: string;
     user_id?: number | string;
-    permissions?: string[];
+    permissions?: unknown;
     error_message?: string;
     error_type?: string;
   };
@@ -97,6 +112,9 @@ export async function GET(req: NextRequest) {
   if (!tokenJson.user_id) {
     return redirectBack(req, orgId, "error", `Step 1: no user_id in response`);
   }
+
+  // What the person actually allowed. If Meta leaves it out, assume what we asked for.
+  const permittedScopes = parseGrantedScopes(tokenJson.permissions) ?? requestedIgScopes(withComments);
 
   // NOTE: tokenJson.user_id is the "app-scoped" IG user ID (~16 digits).
   // But webhook events use the canonical Instagram Business user ID (~17
@@ -144,25 +162,36 @@ export async function GET(req: NextRequest) {
   // ── Step 4: subscribe this IG account to the app's webhooks ────────
   // Without this, Meta won't deliver message webhooks for this account even
   // if the webhook URL + verify token + messages field are all configured.
-  let subscribeInfo = "";
-  for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
-    try {
-      const subUrl = new URL(`https://${host}/${igUserId}/subscribed_apps`);
-      subUrl.searchParams.set("subscribed_fields", "messages");
-      subUrl.searchParams.set("access_token", accessToken);
-      const subRes = await fetch(subUrl.toString(), { method: "POST" });
-      const subText = await subRes.text();
-      console.log(`[ig oauth] subscribe (${host}):`, subRes.status, subText.slice(0, 200));
-      if (subRes.ok) {
-        subscribeInfo = ` — subscribed via ${host}`;
-        break;
-      } else {
-        subscribeInfo = ` — subscribe failed: ${subText.slice(0, 80)}`;
+  let subscribedWith = "";
+  // If the full set of fields is refused on both hosts, retry with "messages"
+  // only, so a first connect never ends up without the messages subscription.
+  const wantedFields = igSubscribedFields(permittedScopes);
+  const fieldAttempts = wantedFields === "messages" ? [wantedFields] : [wantedFields, "messages"];
+  for (const fields of fieldAttempts) {
+    for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
+      try {
+        const subUrl = new URL(`https://${host}/${igUserId}/subscribed_apps`);
+        subUrl.searchParams.set("subscribed_fields", fields);
+        subUrl.searchParams.set("access_token", accessToken);
+        const subRes = await fetch(subUrl.toString(), { method: "POST" });
+        const subText = await subRes.text();
+        console.log(`[ig oauth] subscribe (${host}, ${fields}):`, subRes.status, subText.slice(0, 200));
+        if (subRes.ok) {
+          subscribedWith = fields;
+          break;
+        }
+      } catch (err) {
+        console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);
       }
-    } catch (err) {
-      console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);
     }
+    if (subscribedWith) break;
   }
+
+  // Comment access only counts if the comment fields really got subscribed: otherwise
+  // Comment to DM could be turned on and never receive a comment.
+  const commentPermitted = hasCommentAccess(permittedScopes);
+  const commentSubscribeFailed = commentPermitted && subscribedWith !== wantedFields;
+  const grantedScopes = scopesAfterSubscribe(permittedScopes, subscribedWith === wantedFields) ?? permittedScopes;
 
   // ── Step 5: persist channel ─────────────────────────────────────────
   const admin = createSupabaseAdminClient();
@@ -172,26 +201,71 @@ export async function GET(req: NextRequest) {
     return redirectBack(req, orgId, "error", (err as Error).message);
   }
   const encrypted = bufferToPgBytea(encryptSecret(accessToken));
-  const { error: upErr } = await admin.from("channels").upsert(
-    {
-      org_id: orgId,
-      platform: "instagram",
-      external_id: igUserId,
-      display_name: username ?? `Instagram (${igUserId})`,
-      access_token_ciphertext: encrypted,
-      status: "active",
-    },
-    { onConflict: "external_id" },
-  );
-  if (upErr) {
-    return redirectBack(req, orgId, "error", `Step 5 (DB): ${upErr.message}`);
+  const { data: saved, error: upErr } = await admin
+    .from("channels")
+    .upsert(
+      {
+        org_id: orgId,
+        platform: "instagram",
+        external_id: igUserId,
+        display_name: username ?? `Instagram (${igUserId})`,
+        access_token_ciphertext: encrypted,
+        status: "active",
+        granted_scopes: grantedScopes,
+      },
+      { onConflict: "external_id" },
+    )
+    .select("id")
+    .single();
+  if (upErr || !saved) {
+    return redirectBack(req, orgId, "error", `Step 5 (DB): ${upErr?.message ?? "no channel row returned"}`);
+  }
+  const channelId = saved.id as string;
+
+  // Without comment access Comment to DM can't work: switch it off so its page says why.
+  let turnedOff = false;
+  if (!hasCommentAccess(grantedScopes)) {
+    const { data: switched } = await admin
+      .from("comment_dm_settings")
+      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .eq("channel_id", channelId)
+      .eq("enabled", true)
+      .select("channel_id");
+    turnedOff = (switched?.length ?? 0) > 0;
   }
 
   await admin.from("audit_logs").insert({
     org_id: orgId,
     action: "instagram_connected",
-    payload: { username: username ?? null, user_id: igUserId },
+    payload: {
+      username: username ?? null,
+      user_id: igUserId,
+      scopes: grantedScopes,
+      permitted_scopes: permittedScopes,
+      comment_subscribe_failed: commentSubscribeFailed,
+    },
   }).then(() => {});
 
-  return redirectBack(req, orgId, "success", username ? `@${username}` : `user ${igUserId}`);
+  if (decoded.returnTo === "comment-dm") {
+    const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+    const url = new URL(`/app/${orgId}/channels/comment-dm/${channelId}`, base);
+    if (hasCommentAccess(grantedScopes)) url.searchParams.set("connected", "1");
+    else {
+      url.searchParams.set(
+        "error",
+        commentSubscribeFailed
+          ? "Instagram connected, but signing up for comment updates failed. Try reconnecting in a minute."
+          : "Instagram didn't allow comment access. Try again and keep access to comments allowed.",
+      );
+    }
+    return NextResponse.redirect(url);
+  }
+
+  return redirectBack(
+    req,
+    orgId,
+    "success",
+    username ? `@${username}` : `user ${igUserId}`,
+    turnedOff ? { cdm: "off" } : undefined,
+  );
 }

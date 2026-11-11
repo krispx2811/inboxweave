@@ -151,18 +151,34 @@ export async function GET(req: NextRequest) {
       connectedCount++;
 
       if (page.instagram_business_account?.id) {
-        await admin.from("channels").upsert(
-          {
-            org_id: orgId,
-            platform: "instagram",
-            external_id: page.instagram_business_account.id,
-            display_name: `${page.name} (Instagram)`,
-            access_token_ciphertext: encrypted,
-            status: "active",
-          },
-          { onConflict: "external_id" },
-        );
-        igCount++;
+        const { data: igRow, error: igErr } = await admin
+          .from("channels")
+          .upsert(
+            {
+              org_id: orgId,
+              platform: "instagram",
+              external_id: page.instagram_business_account.id,
+              display_name: `${page.name} (Instagram)`,
+              access_token_ciphertext: encrypted,
+              status: "active",
+              granted_scopes: null,
+            },
+            { onConflict: "external_id" },
+          )
+          .select("id")
+          .maybeSingle();
+        if (igErr) {
+          console.error("[meta oauth] instagram channel upsert failed", igErr.message);
+        } else {
+          // A Facebook page token can't do Comment to DM (it needs an Instagram login token): switch it off.
+          if (igRow?.id) {
+            await admin
+              .from("comment_dm_settings")
+              .update({ enabled: false, updated_at: new Date().toISOString() })
+              .eq("channel_id", igRow.id as string);
+          }
+          igCount++;
+        }
       }
 
       await fetch(`${GRAPH}/${page.id}/subscribed_apps`, {

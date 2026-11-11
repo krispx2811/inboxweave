@@ -17,6 +17,10 @@ export interface OAuthState {
   /** Issued-at, ms since epoch. */
   iat: number;
   flow?: "ig" | "fb" | "wa";
+  /** Instagram only: also ask for comment access (instagram_business_manage_comments). */
+  withComments?: boolean;
+  /** Instagram only: land on the Comment to DM page after connecting. */
+  returnTo?: "comment-dm";
 }
 
 function getKey(): string {
