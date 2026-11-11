@@ -16,8 +16,9 @@ function toGraphButton(b: Button) {
 export function templateMessage(msg: ButtonMessage, style: "button" | "generic" = TEMPLATE_STYLE) {
   const button = toGraphButton(msg.button);
   if (style === "generic") {
-    const title = msg.text.slice(0, 80);
-    const subtitle = msg.text.slice(80, 160);
+    const chars = Array.from(msg.text);
+    const title = chars.slice(0, 80).join("");
+    const subtitle = chars.slice(80, 160).join("");
     const element = subtitle ? { title, subtitle, buttons: [button] } : { title, buttons: [button] };
     return { attachment: { type: "template", payload: { template_type: "generic", elements: [element] } } };
   }

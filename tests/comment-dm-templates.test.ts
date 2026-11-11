@@ -55,3 +55,10 @@ test("the generic fallback leaves out an empty subtitle", () => {
     },
   });
 });
+
+test("the generic fallback never splits an emoji at the 80-character boundary", () => {
+  const text = "a".repeat(79) + "😀" + "b".repeat(5);
+  const el = (templateMessage({ text, button: { type: "postback", title: "Go", payload: "cdm:x" } }, "generic") as { attachment: { payload: { elements: Array<{ title: string; subtitle?: string }> } } }).attachment.payload.elements[0];
+  assert.equal(el.title, "a".repeat(79) + "😀");
+  assert.equal(el.subtitle, "b".repeat(5));
+});

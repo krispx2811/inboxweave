@@ -157,13 +157,13 @@ export function createStore(admin: Admin = createSupabaseAdminClient()): Comment
           },
           { onConflict: "channel_id,contact_external_id" },
         )
-        .select("id, contact_username, language")
+        .select("id, contact_username")
         .single();
       if (error || !data) throw new Error(error?.message ?? "Failed to upsert conversation");
-      // Fill gaps only; never overwrite what the inbox already knows.
+      // Fill gaps only; never overwrite what the inbox already knows. conversations.language is
+      // left alone: it holds the inbox's own detection and pins the AI reply language.
       const patch: Row = {};
       if (!data.contact_username && input.contactUsername) patch.contact_username = input.contactUsername;
-      if (!data.language) patch.language = input.language;
       if (Object.keys(patch).length > 0) {
         await admin.from("conversations").update(patch).eq("id", data.id);
       }

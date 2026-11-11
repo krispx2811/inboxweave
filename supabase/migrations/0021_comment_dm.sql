@@ -51,6 +51,8 @@ create table if not exists public.comment_dm_events (
 
 create index if not exists comment_dm_events_channel_status_idx
   on public.comment_dm_events(channel_id, status, updated_at desc);
+create index if not exists comment_dm_events_org_idx on public.comment_dm_events(org_id);
+create index if not exists comment_dm_events_conversation_idx on public.comment_dm_events(conversation_id);
 
 -- Read and written only by the server with the service role, like offers (0019).
 alter table public.comment_dm_settings enable row level security;

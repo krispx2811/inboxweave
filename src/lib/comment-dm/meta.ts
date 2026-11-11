@@ -40,6 +40,11 @@ async function channelCtx(channelId: string): Promise<Ctx> {
       refreshedAt: (data.token_refreshed_at as string | null) ?? null,
     }).catch(() => {});
   }
+  // Only Instagram Business Login tokens work on graph.instagram.com. A Facebook page token
+  // would get code 190 and mark the whole channel unhealthy, so refuse before any Graph call.
+  if (!token.startsWith("IGA")) {
+    throw new Error("Comment to DM needs the account connected with Instagram login. Reconnect it from the Comment to DM page.");
+  }
   return { channelId, orgId: data.org_id as string, token };
 }
 
@@ -65,7 +70,7 @@ async function graph<T = unknown>(ctx: Ctx, path: string, call: GraphCall): Prom
   const json = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: number } };
   if (!res.ok || json.error) {
     const code = json.error?.code;
-    const message = `${json.error?.message ?? res.statusText}${code ? ` (code ${code})` : ""}`;
+    const message = `${json.error?.message || res.statusText || `HTTP ${res.status}`}${code ? ` (code ${code})` : ""}`;
     if (code === 190 || isTokenError(message)) {
       invalidateCachedDecryptedToken(ctx.channelId);
       await markChannelUnhealthy({
@@ -117,7 +122,7 @@ export function createMeta(): CommentDmMeta {
         }
         return { ok: true, follows: res.is_user_follow_business };
       } catch (err) {
-        return { ok: false, error: (err as Error).message.slice(0, 200) };
+        return { ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 200) };
       }
     },
   };
