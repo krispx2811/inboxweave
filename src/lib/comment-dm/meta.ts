@@ -52,6 +52,15 @@ type GraphCall =
   | { method: "GET"; query?: Record<string, string> }
   | { method: "POST"; body: Record<string, unknown> };
 
+class GraphError extends Error {
+  constructor(
+    message: string,
+    readonly tokenError: boolean,
+  ) {
+    super(message);
+  }
+}
+
 async function graph<T = unknown>(ctx: Ctx, path: string, call: GraphCall): Promise<T> {
   const url = new URL(`${GRAPH}/${path}`);
   let res: Response;
@@ -71,7 +80,8 @@ async function graph<T = unknown>(ctx: Ctx, path: string, call: GraphCall): Prom
   if (!res.ok || json.error) {
     const code = json.error?.code;
     const message = `${json.error?.message || res.statusText || `HTTP ${res.status}`}${code ? ` (code ${code})` : ""}`;
-    if (code === 190 || isTokenError(message)) {
+    const tokenError = code === 190 || isTokenError(message);
+    if (tokenError) {
       invalidateCachedDecryptedToken(ctx.channelId);
       await markChannelUnhealthy({
         channelId: ctx.channelId,
@@ -80,43 +90,71 @@ async function graph<T = unknown>(ctx: Ctx, path: string, call: GraphCall): Prom
         error: message,
       }).catch(() => {});
     }
-    throw new Error(message);
+    throw new GraphError(message, tokenError);
   }
   return json as T;
 }
 
 export function createMeta(): CommentDmMeta {
+  // One channel row read per batch. A failed lookup is never kept, and a token error
+  // drops the entry so the next call reads the channel (and its token) afresh.
+  const cache = new Map<string, Promise<Ctx>>();
+  const ctxFor = (channelId: string): Promise<Ctx> => {
+    let pending = cache.get(channelId);
+    if (!pending) {
+      pending = channelCtx(channelId);
+      cache.set(channelId, pending);
+      pending.catch(() => {
+        if (cache.get(channelId) === pending) cache.delete(channelId);
+      });
+    }
+    return pending;
+  };
+  const call = async <T>(channelId: string, run: (ctx: Ctx) => Promise<T>): Promise<T> => {
+    const ctx = await ctxFor(channelId);
+    try {
+      return await run(ctx);
+    } catch (err) {
+      if (err instanceof GraphError && err.tokenError) cache.delete(channelId);
+      throw err;
+    }
+  };
+
   return {
     async replyToComment(channelId, commentId, text) {
-      const ctx = await channelCtx(channelId);
-      await graph(ctx, `${encodeURIComponent(commentId)}/replies`, { method: "POST", body: { message: text } });
+      await call(channelId, (ctx) =>
+        graph(ctx, `${encodeURIComponent(commentId)}/replies`, { method: "POST", body: { message: text } }),
+      );
     },
 
     async sendPrivateReply(channelId, commentId, msg) {
-      const ctx = await channelCtx(channelId);
-      const res = await graph<{ recipient_id?: string; message_id?: string }>(ctx, "me/messages", {
-        method: "POST",
-        body: { recipient: { comment_id: commentId }, message: templateMessage(msg) },
-      });
+      const res = await call(channelId, (ctx) =>
+        graph<{ recipient_id?: string; message_id?: string }>(ctx, "me/messages", {
+          method: "POST",
+          body: { recipient: { comment_id: commentId }, message: templateMessage(msg) },
+        }),
+      );
       return { messageId: res.message_id, recipientId: res.recipient_id };
     },
 
     async sendButtonMessage(channelId, recipientId, msg) {
-      const ctx = await channelCtx(channelId);
-      const res = await graph<{ recipient_id?: string; message_id?: string }>(ctx, "me/messages", {
-        method: "POST",
-        body: { recipient: { id: recipientId }, message: templateMessage(msg) },
-      });
+      const res = await call(channelId, (ctx) =>
+        graph<{ recipient_id?: string; message_id?: string }>(ctx, "me/messages", {
+          method: "POST",
+          body: { recipient: { id: recipientId }, message: templateMessage(msg) },
+        }),
+      );
       return { messageId: res.message_id, recipientId: res.recipient_id };
     },
 
     async checkFollows(channelId, igsid): Promise<FollowResult> {
       try {
-        const ctx = await channelCtx(channelId);
-        const res = await graph<{ is_user_follow_business?: unknown }>(ctx, encodeURIComponent(igsid), {
-          method: "GET",
-          query: { fields: "is_user_follow_business" },
-        });
+        const res = await call(channelId, (ctx) =>
+          graph<{ is_user_follow_business?: unknown }>(ctx, encodeURIComponent(igsid), {
+            method: "GET",
+            query: { fields: "is_user_follow_business" },
+          }),
+        );
         if (typeof res.is_user_follow_business !== "boolean") {
           return { ok: false, error: "follow status missing from Instagram's answer" };
         }
