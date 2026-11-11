@@ -77,6 +77,11 @@ export async function requestGdprDelete(formData: FormData) {
     await admin.from("conversations").delete().in("id", convoIds);
   }
 
+  // Comment-to-DM events name the contact as the commenter or the DM recipient.
+  // Two separate deletes: contactId is free text, so it must not go into an .or() filter.
+  await admin.from("comment_dm_events").delete().eq("org_id", parsed.orgId).eq("recipient_id", parsed.contactId);
+  await admin.from("comment_dm_events").delete().eq("org_id", parsed.orgId).eq("commenter_id", parsed.contactId);
+
   // Delete contacts table entries.
   await admin.from("contacts").delete().eq("org_id", parsed.orgId).eq("external_id", parsed.contactId);
 
