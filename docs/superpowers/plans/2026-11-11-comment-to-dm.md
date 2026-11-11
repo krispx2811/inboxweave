@@ -19,7 +19,7 @@
 - Run one test file: `node --test tests/<file>.test.ts`. The run prints a `MODULE_TYPELESS_PACKAGE_JSON` warning. That's harmless and already happens today.
 - `npm run lint` already reports 10 errors in files this plan doesn't touch. Don't fix them here. Lint only the files you change (Task 15 lists them).
 - `src/lib/supabase/types.ts` declares `Database = any`, so new tables need no type changes.
-- **Deploy order:** migration `0021` must be applied to the database **before** this code is deployed. The Channels page selects the new `granted_scopes` column.
+- **Deploy order:** migration `0021` must be applied to the database **before** this code is deployed. The Channels page selects the new `granted_scopes` column. Without it, connecting Instagram fails at "Step 5 (DB)", the Facebook callback stops updating Instagram channels, subscribe-ig returns 404, and the Channels page shows no channels (customer DMs keep working). So the migration is a hard prerequisite for deploying this branch.
 
 ## Deviations from the spec (decided while planning)
 

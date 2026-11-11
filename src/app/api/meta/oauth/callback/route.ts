@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
       connectedCount++;
 
       if (page.instagram_business_account?.id) {
-        const { data: igRow } = await admin
+        const { data: igRow, error: igErr } = await admin
           .from("channels")
           .upsert(
             {
@@ -167,14 +167,18 @@ export async function GET(req: NextRequest) {
           )
           .select("id")
           .maybeSingle();
-        // A Facebook page token can't do Comment to DM (it needs an Instagram login token): switch it off.
-        if (igRow?.id) {
-          await admin
-            .from("comment_dm_settings")
-            .update({ enabled: false, updated_at: new Date().toISOString() })
-            .eq("channel_id", igRow.id as string);
+        if (igErr) {
+          console.error("[meta oauth] instagram channel upsert failed", igErr.message);
+        } else {
+          // A Facebook page token can't do Comment to DM (it needs an Instagram login token): switch it off.
+          if (igRow?.id) {
+            await admin
+              .from("comment_dm_settings")
+              .update({ enabled: false, updated_at: new Date().toISOString() })
+              .eq("channel_id", igRow.id as string);
+          }
+          igCount++;
         }
-        igCount++;
       }
 
       await fetch(`${GRAPH}/${page.id}/subscribed_apps`, {

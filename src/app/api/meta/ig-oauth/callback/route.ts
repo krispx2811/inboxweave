@@ -155,23 +155,30 @@ export async function GET(req: NextRequest) {
   // Without this, Meta won't deliver message webhooks for this account even
   // if the webhook URL + verify token + messages field are all configured.
   let subscribeInfo = "";
-  for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
-    try {
-      const subUrl = new URL(`https://${host}/${igUserId}/subscribed_apps`);
-      subUrl.searchParams.set("subscribed_fields", igSubscribedFields(grantedScopes));
-      subUrl.searchParams.set("access_token", accessToken);
-      const subRes = await fetch(subUrl.toString(), { method: "POST" });
-      const subText = await subRes.text();
-      console.log(`[ig oauth] subscribe (${host}):`, subRes.status, subText.slice(0, 200));
-      if (subRes.ok) {
-        subscribeInfo = ` — subscribed via ${host}`;
-        break;
-      } else {
-        subscribeInfo = ` — subscribe failed: ${subText.slice(0, 80)}`;
+  // If the full set of fields is refused on both hosts, retry with "messages"
+  // only, so a first connect never ends up without the messages subscription.
+  const wantedFields = igSubscribedFields(grantedScopes);
+  const fieldAttempts = wantedFields === "messages" ? [wantedFields] : [wantedFields, "messages"];
+  for (const fields of fieldAttempts) {
+    for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
+      try {
+        const subUrl = new URL(`https://${host}/${igUserId}/subscribed_apps`);
+        subUrl.searchParams.set("subscribed_fields", fields);
+        subUrl.searchParams.set("access_token", accessToken);
+        const subRes = await fetch(subUrl.toString(), { method: "POST" });
+        const subText = await subRes.text();
+        console.log(`[ig oauth] subscribe (${host}, ${fields}):`, subRes.status, subText.slice(0, 200));
+        if (subRes.ok) {
+          subscribeInfo = ` — subscribed via ${host} (${fields})`;
+          break;
+        } else {
+          subscribeInfo = ` — subscribe failed: ${subText.slice(0, 80)}`;
+        }
+      } catch (err) {
+        console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);
       }
-    } catch (err) {
-      console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);
     }
+    if (subscribeInfo.startsWith(" — subscribed")) break;
   }
 
   // ── Step 5: persist channel ─────────────────────────────────────────

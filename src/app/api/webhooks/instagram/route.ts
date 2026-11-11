@@ -75,7 +75,14 @@ export async function POST(req: NextRequest) {
   }
 
   // Any event in the delivery names the account; they all come from one app.
-  const firstPageId = messages[0]?.pageId ?? comments[0]?.accountId ?? taps[0]!.accountId;
+  const firstPageId = messages[0]?.pageId ?? comments[0]?.accountId ?? taps[0]?.accountId;
+  if (!firstPageId) {
+    logWebhookDebug({
+      platform: "instagram", method: "POST", statusCode: 200,
+      parsedCount, rawBody: raw, error: "no account id in delivery",
+    });
+    return NextResponse.json({ ok: true });
+  }
   const orgId = await findOrgByChannelExternalId(firstPageId, "instagram");
 
   // No channel matches this external_id. Most likely this is Meta's Test

@@ -37,17 +37,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ orgId: str
   const igUserId = channel.external_id as string;
 
   const results: Array<{ host: string; status: number; body: string }> = [];
-  for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
-    try {
-      const url = new URL(`https://${host}/${igUserId}/subscribed_apps`);
-      url.searchParams.set("subscribed_fields", igSubscribedFields(channel.granted_scopes as string[] | null));
-      url.searchParams.set("access_token", token);
-      const r = await fetch(url.toString(), { method: "POST" });
-      const t = await r.text();
-      results.push({ host, status: r.status, body: t.slice(0, 300) });
-      if (r.ok) return NextResponse.json({ ok: true, host, result: t });
-    } catch (err) {
-      results.push({ host, status: 0, body: (err as Error).message });
+  // If the full set of fields is refused on both hosts, retry with "messages" only.
+  const wantedFields = igSubscribedFields(channel.granted_scopes as string[] | null);
+  const fieldAttempts = wantedFields === "messages" ? [wantedFields] : [wantedFields, "messages"];
+  for (const fields of fieldAttempts) {
+    for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
+      try {
+        const url = new URL(`https://${host}/${igUserId}/subscribed_apps`);
+        url.searchParams.set("subscribed_fields", fields);
+        url.searchParams.set("access_token", token);
+        const r = await fetch(url.toString(), { method: "POST" });
+        const t = await r.text();
+        results.push({ host, status: r.status, body: t.slice(0, 300) });
+        if (r.ok) return NextResponse.json({ ok: true, host, fields, result: t });
+      } catch (err) {
+        results.push({ host, status: 0, body: (err as Error).message });
+      }
     }
   }
   return NextResponse.json({ ok: false, results }, { status: 500 });
