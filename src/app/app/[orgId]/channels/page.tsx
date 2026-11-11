@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { signState } from "@/lib/auth/oauth-state";
+import { buildIgLoginUrl, hasCommentAccess, pickIgAppId } from "@/lib/channels/ig-scopes";
 import {
   connectWhatsApp,
   disconnectChannel,
@@ -42,15 +43,19 @@ export default async function ChannelsPage({
   const ctx = await requireOrgMember(orgId);
   const { fb, ig, msg } = await searchParams;
   const admin = createSupabaseAdminClient();
-  const [{ data: channels }, { data: metaSettings }] = await Promise.all([
+  const [{ data: channels }, { data: metaSettings }, { data: commentDmRows }] = await Promise.all([
     admin
       .from("channels")
-      .select("id, platform, external_id, display_name, status, last_error, last_error_at, auto_accept_requests, created_at")
+      .select("id, platform, external_id, display_name, status, last_error, last_error_at, auto_accept_requests, granted_scopes, created_at")
       .eq("org_id", orgId)
       .order("created_at", { ascending: false }),
     // Per-org app IDs (separate for Instagram vs Facebook).
     admin.from("meta_settings").select("app_id, fb_app_id, ig_app_id").eq("org_id", orgId).maybeSingle(),
+    admin.from("comment_dm_settings").select("channel_id").eq("org_id", orgId).eq("enabled", true),
   ]);
+  const commentDmOn = new Set((commentDmRows ?? []).map((r) => r.channel_id as string));
+  // Once an account has comment access, reconnecting must keep it, or Comment to DM stops.
+  const igWithComments = (channels ?? []).some((c) => hasCommentAccess(c.granted_scopes as string[] | null));
 
   const brokenChannels = (channels ?? []).filter((c) => c.status === "error");
 
@@ -60,12 +65,9 @@ export default async function ChannelsPage({
     (metaSettings?.fb_app_id as string | undefined) ??
     (metaSettings?.app_id as string | undefined) ??
     process.env.META_APP_ID;
-  const igAppId =
-    (metaSettings?.ig_app_id as string | undefined) ??
-    (metaSettings?.app_id as string | undefined) ??
-    process.env.META_APP_ID;
+  const igAppId = pickIgAppId(metaSettings, process.env.META_APP_ID);
   const fbState = signState({ orgId, uid: ctx.userId, flow: "fb" });
-  const igState = signState({ orgId, uid: ctx.userId, flow: "ig" });
+  const igState = signState({ orgId, uid: ctx.userId, flow: "ig", withComments: igWithComments });
 
   // Classic Facebook Login — for Messenger + Pages (requires Facebook Login product).
   const fbLoginUrl =
@@ -81,17 +83,7 @@ export default async function ChannelsPage({
   // Instagram Business Login — reuses /api/meta/oauth/callback which
   // dispatches to the IG handler when state.flow === "ig".
   const igLoginUrl =
-    igAppId &&
-    `https://www.instagram.com/oauth/authorize?` +
-      new URLSearchParams({
-        enable_fb_login: "0",
-        force_authentication: "1",
-        client_id: igAppId,
-        redirect_uri: `${appUrl}/api/meta/oauth/callback`,
-        response_type: "code",
-        scope: "instagram_business_basic,instagram_business_manage_messages",
-        state: igState,
-      }).toString();
+    igAppId && buildIgLoginUrl({ appId: igAppId, appUrl, state: igState, withComments: igWithComments });
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
@@ -290,9 +282,25 @@ export default async function ChannelsPage({
               {c.platform === "whatsapp" && <WhatsAppConnectionCheck orgId={orgId} channelId={c.id as string} />}
               {c.platform === "instagram" && (
                 <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-slate-700">Comment to DM</div>
+                      <div className="text-[10px] text-slate-500">
+                        DM everyone who comments on your posts and send them your link.
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={commentDmOn.has(c.id as string) ? "badge-green" : "badge-gray"}>
+                        {commentDmOn.has(c.id as string) ? "On" : "Off"}
+                      </span>
+                      <a className="btn-ghost btn-sm" href={`/app/${orgId}/channels/comment-dm/${c.id}`}>
+                        Set up
+                      </a>
+                    </div>
+                  </div>
                   <form
                     action={toggleAutoAcceptRequests}
-                    className="flex items-center justify-between"
+                    className="flex items-center justify-between border-t border-slate-200 pt-2"
                   >
                     <input type="hidden" name="orgId" value={orgId} />
                     <input type="hidden" name="channelId" value={c.id} />
