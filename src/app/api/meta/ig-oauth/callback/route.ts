@@ -5,6 +5,12 @@ import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 import { getMetaCredentials } from "@/lib/channels/meta-settings";
 import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
 import { verifyState } from "@/lib/auth/oauth-state";
+import {
+  hasCommentAccess,
+  igSubscribedFields,
+  parseGrantedScopes,
+  requestedIgScopes,
+} from "@/lib/channels/ig-scopes";
 
 export const runtime = "nodejs";
 
@@ -41,6 +47,7 @@ export async function GET(req: NextRequest) {
   const decoded = verifyState(state);
   if (!decoded) return new NextResponse("bad state", { status: 400 });
   const orgId = decoded.orgId;
+  const withComments = decoded.withComments === true;
 
   const ctx = await requireOrgMember(orgId);
   if (ctx.userId !== decoded.uid) return new NextResponse("bad state", { status: 400 });
@@ -79,7 +86,7 @@ export async function GET(req: NextRequest) {
   let tokenJson: {
     access_token?: string;
     user_id?: number | string;
-    permissions?: string[];
+    permissions?: unknown;
     error_message?: string;
     error_type?: string;
   };
@@ -97,6 +104,9 @@ export async function GET(req: NextRequest) {
   if (!tokenJson.user_id) {
     return redirectBack(req, orgId, "error", `Step 1: no user_id in response`);
   }
+
+  // What the person actually allowed. If Meta leaves it out, assume what we asked for.
+  const grantedScopes = parseGrantedScopes(tokenJson.permissions) ?? requestedIgScopes(withComments);
 
   // NOTE: tokenJson.user_id is the "app-scoped" IG user ID (~16 digits).
   // But webhook events use the canonical Instagram Business user ID (~17
@@ -148,7 +158,7 @@ export async function GET(req: NextRequest) {
   for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
     try {
       const subUrl = new URL(`https://${host}/${igUserId}/subscribed_apps`);
-      subUrl.searchParams.set("subscribed_fields", "messages");
+      subUrl.searchParams.set("subscribed_fields", igSubscribedFields(grantedScopes));
       subUrl.searchParams.set("access_token", accessToken);
       const subRes = await fetch(subUrl.toString(), { method: "POST" });
       const subText = await subRes.text();
@@ -172,26 +182,48 @@ export async function GET(req: NextRequest) {
     return redirectBack(req, orgId, "error", (err as Error).message);
   }
   const encrypted = bufferToPgBytea(encryptSecret(accessToken));
-  const { error: upErr } = await admin.from("channels").upsert(
-    {
-      org_id: orgId,
-      platform: "instagram",
-      external_id: igUserId,
-      display_name: username ?? `Instagram (${igUserId})`,
-      access_token_ciphertext: encrypted,
-      status: "active",
-    },
-    { onConflict: "external_id" },
-  );
-  if (upErr) {
-    return redirectBack(req, orgId, "error", `Step 5 (DB): ${upErr.message}`);
+  const { data: saved, error: upErr } = await admin
+    .from("channels")
+    .upsert(
+      {
+        org_id: orgId,
+        platform: "instagram",
+        external_id: igUserId,
+        display_name: username ?? `Instagram (${igUserId})`,
+        access_token_ciphertext: encrypted,
+        status: "active",
+        granted_scopes: grantedScopes,
+      },
+      { onConflict: "external_id" },
+    )
+    .select("id")
+    .single();
+  if (upErr || !saved) {
+    return redirectBack(req, orgId, "error", `Step 5 (DB): ${upErr?.message ?? "no channel row returned"}`);
+  }
+  const channelId = saved.id as string;
+
+  // Without comment access Comment to DM can't work: switch it off so its page says why.
+  if (!hasCommentAccess(grantedScopes)) {
+    await admin
+      .from("comment_dm_settings")
+      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .eq("channel_id", channelId);
   }
 
   await admin.from("audit_logs").insert({
     org_id: orgId,
     action: "instagram_connected",
-    payload: { username: username ?? null, user_id: igUserId },
+    payload: { username: username ?? null, user_id: igUserId, scopes: grantedScopes },
   }).then(() => {});
+
+  if (decoded.returnTo === "comment-dm") {
+    const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+    const url = new URL(`/app/${orgId}/channels/comment-dm/${channelId}`, base);
+    if (hasCommentAccess(grantedScopes)) url.searchParams.set("connected", "1");
+    else url.searchParams.set("error", "Instagram didn't allow comment access. Try again and keep access to comments allowed.");
+    return NextResponse.redirect(url);
+  }
 
   return redirectBack(req, orgId, "success", username ? `@${username}` : `user ${igUserId}`);
 }

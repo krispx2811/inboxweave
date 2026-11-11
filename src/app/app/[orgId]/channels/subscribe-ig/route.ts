@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
+import { igSubscribedFields } from "@/lib/channels/ig-scopes";
 
 export const runtime = "nodejs";
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ orgId: str
   const admin = createSupabaseAdminClient();
   const { data: channel } = await admin
     .from("channels")
-    .select("external_id, access_token_ciphertext")
+    .select("external_id, access_token_ciphertext, granted_scopes")
     .eq("id", body.channelId)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ orgId: str
   for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
     try {
       const url = new URL(`https://${host}/${igUserId}/subscribed_apps`);
-      url.searchParams.set("subscribed_fields", "messages");
+      url.searchParams.set("subscribed_fields", igSubscribedFields(channel.granted_scopes as string[] | null));
       url.searchParams.set("access_token", token);
       const r = await fetch(url.toString(), { method: "POST" });
       const t = await r.text();
