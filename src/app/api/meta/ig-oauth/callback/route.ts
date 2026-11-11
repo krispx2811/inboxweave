@@ -7,6 +7,7 @@ import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
 import { verifyState } from "@/lib/auth/oauth-state";
 import {
   hasCommentAccess,
+  IG_COMMENTS_SCOPE,
   igSubscribedFields,
   parseGrantedScopes,
   requestedIgScopes,
@@ -106,7 +107,7 @@ export async function GET(req: NextRequest) {
   }
 
   // What the person actually allowed. If Meta leaves it out, assume what we asked for.
-  const grantedScopes = parseGrantedScopes(tokenJson.permissions) ?? requestedIgScopes(withComments);
+  const permittedScopes = parseGrantedScopes(tokenJson.permissions) ?? requestedIgScopes(withComments);
 
   // NOTE: tokenJson.user_id is the "app-scoped" IG user ID (~16 digits).
   // But webhook events use the canonical Instagram Business user ID (~17
@@ -155,9 +156,10 @@ export async function GET(req: NextRequest) {
   // Without this, Meta won't deliver message webhooks for this account even
   // if the webhook URL + verify token + messages field are all configured.
   let subscribeInfo = "";
+  let subscribedWith = "";
   // If the full set of fields is refused on both hosts, retry with "messages"
   // only, so a first connect never ends up without the messages subscription.
-  const wantedFields = igSubscribedFields(grantedScopes);
+  const wantedFields = igSubscribedFields(permittedScopes);
   const fieldAttempts = wantedFields === "messages" ? [wantedFields] : [wantedFields, "messages"];
   for (const fields of fieldAttempts) {
     for (const host of ["graph.instagram.com/v21.0", "graph.facebook.com/v21.0"]) {
@@ -170,6 +172,7 @@ export async function GET(req: NextRequest) {
         console.log(`[ig oauth] subscribe (${host}, ${fields}):`, subRes.status, subText.slice(0, 200));
         if (subRes.ok) {
           subscribeInfo = ` — subscribed via ${host} (${fields})`;
+          subscribedWith = fields;
           break;
         } else {
           subscribeInfo = ` — subscribe failed: ${subText.slice(0, 80)}`;
@@ -180,6 +183,14 @@ export async function GET(req: NextRequest) {
     }
     if (subscribeInfo.startsWith(" — subscribed")) break;
   }
+
+  // Comment access only counts if the comment fields really got subscribed: otherwise
+  // Comment to DM could be turned on and never receive a comment.
+  const commentPermitted = hasCommentAccess(permittedScopes);
+  const commentSubscribeFailed = commentPermitted && subscribedWith !== wantedFields;
+  const grantedScopes = commentSubscribeFailed
+    ? permittedScopes.filter((s) => s !== IG_COMMENTS_SCOPE)
+    : permittedScopes;
 
   // ── Step 5: persist channel ─────────────────────────────────────────
   const admin = createSupabaseAdminClient();
@@ -228,7 +239,14 @@ export async function GET(req: NextRequest) {
     const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
     const url = new URL(`/app/${orgId}/channels/comment-dm/${channelId}`, base);
     if (hasCommentAccess(grantedScopes)) url.searchParams.set("connected", "1");
-    else url.searchParams.set("error", "Instagram didn't allow comment access. Try again and keep access to comments allowed.");
+    else {
+      url.searchParams.set(
+        "error",
+        commentSubscribeFailed
+          ? "Instagram connected, but signing up for comment updates failed. Try reconnecting in a minute."
+          : "Instagram didn't allow comment access. Try again and keep access to comments allowed.",
+      );
+    }
     return NextResponse.redirect(url);
   }
 
