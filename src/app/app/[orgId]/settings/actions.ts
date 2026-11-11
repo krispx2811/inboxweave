@@ -1,40 +1,47 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
-import { DEFAULT_MODEL } from "@/lib/ai/models";
 import { forgetOpenAIKey } from "@/lib/ai/openai";
+import { parsePersonaForm } from "@/lib/ai/persona";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { bufferToPgBytea, encryptSecret } from "@/lib/crypto/secrets";
 
-const PromptSchema = z.object({
-  orgId: z.string().uuid(),
-  system_prompt: z.string().min(1).max(8000),
-  model: z.string().min(1).max(50).default(DEFAULT_MODEL),
-  temperature: z.coerce.number().min(0).max(2),
-});
+// The Settings page has no error screen, so a thrown error shows as a crash.
+// Persona saves report back through the URL instead.
+function backToSettings(orgId: string, params: Record<string, string>): never {
+  redirect(`/app/${orgId}/settings?${new URLSearchParams(params).toString()}`);
+}
 
 export async function updateAiSettings(formData: FormData) {
-  const parsed = PromptSchema.parse({
-    orgId: formData.get("orgId"),
+  const orgId = z.string().uuid().parse(formData.get("orgId"));
+  const ctx = await requireOrgMember(orgId);
+  if (ctx.role !== "owner") {
+    backToSettings(orgId, {
+      persona_error: "Only owners can change the persona. Ask an owner of this organization to save it.",
+    });
+  }
+
+  const parsed = parsePersonaForm({
     system_prompt: formData.get("system_prompt"),
-    model: formData.get("model") ?? DEFAULT_MODEL,
+    model: formData.get("model"),
     temperature: formData.get("temperature"),
   });
-  const ctx = await requireOrgMember(parsed.orgId);
-  if (ctx.role !== "owner") throw new Error("Only owners can update AI settings");
+  if (!parsed.ok) backToSettings(orgId, { persona_error: parsed.error });
 
   const admin = createSupabaseAdminClient();
   const { error } = await admin.from("ai_settings").upsert({
-    org_id: parsed.orgId,
-    system_prompt: parsed.system_prompt,
-    model: parsed.model,
-    temperature: parsed.temperature,
+    org_id: orgId,
+    system_prompt: parsed.data.system_prompt,
+    model: parsed.data.model,
+    temperature: parsed.data.temperature,
     updated_at: new Date().toISOString(),
   });
-  if (error) throw new Error(error.message);
-  revalidatePath(`/app/${parsed.orgId}/settings`);
+  if (error) backToSettings(orgId, { persona_error: `Couldn't save the persona: ${error.message}` });
+  revalidatePath(`/app/${orgId}/settings`);
+  backToSettings(orgId, { persona: "saved" });
 }
 
 const KeySchema = z.object({
