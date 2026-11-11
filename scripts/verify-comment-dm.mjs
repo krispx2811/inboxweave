@@ -35,8 +35,10 @@ async function call(method, path, { query = {}, body, tokenIn = method === "GET"
   }
   const res = await fetch(url, init);
   const text = await res.text();
-  console.log(`${method} ${path} → ${res.status}`);
-  console.log(text);
+  // Print outside input on one line so it can't forge extra log lines.
+  const oneLine = (s) => String(s).replace(/[\r\n]+/g, " ");
+  console.log(`${method} ${oneLine(path)} → ${res.status}`);
+  console.log(oneLine(text));
   try {
     return JSON.parse(text);
   } catch {
