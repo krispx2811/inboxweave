@@ -127,8 +127,8 @@ test("non-string saved texts fall back instead of throwing", () => {
 });
 
 test("textarea line breaks submitted as CRLF count as one character", () => {
-  const body = "ab\r\n".repeat(160); // 640 characters with CRLF, 480 once normalised
+  const body = "ab\r\n".repeat(200); // 800 characters with CRLF, 600 once normalised
   const result = parseSettingsForm(form({ linkUrl: "", defaultLanguage: "en", [textFieldName("en", "opening")]: body }));
   assert.ok(result.success);
-  assert.equal(result.data.texts.en.opening, "ab\n".repeat(160).trim());
+  assert.equal(result.data.texts.en.opening, "ab\n".repeat(200).trim());
 });

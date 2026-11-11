@@ -162,7 +162,6 @@ export async function GET(req: NextRequest) {
   // ── Step 4: subscribe this IG account to the app's webhooks ────────
   // Without this, Meta won't deliver message webhooks for this account even
   // if the webhook URL + verify token + messages field are all configured.
-  let subscribeInfo = "";
   let subscribedWith = "";
   // If the full set of fields is refused on both hosts, retry with "messages"
   // only, so a first connect never ends up without the messages subscription.
@@ -178,11 +177,8 @@ export async function GET(req: NextRequest) {
         const subText = await subRes.text();
         console.log(`[ig oauth] subscribe (${host}, ${fields}):`, subRes.status, subText.slice(0, 200));
         if (subRes.ok) {
-          subscribeInfo = ` — subscribed via ${host} (${fields})`;
           subscribedWith = fields;
           break;
-        } else {
-          subscribeInfo = ` — subscribe failed: ${subText.slice(0, 80)}`;
         }
       } catch (err) {
         console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);

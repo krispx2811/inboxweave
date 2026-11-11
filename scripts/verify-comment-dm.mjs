@@ -9,6 +9,7 @@
  *   export IG_TOKEN=IGAA...
  *   node scripts/verify-comment-dm.mjs me
  *   node scripts/verify-comment-dm.mjs subscribe
+ *   node scripts/verify-comment-dm.mjs subscribed
  *   node scripts/verify-comment-dm.mjs comments
  *   node scripts/verify-comment-dm.mjs public-reply <commentId> [body|query]
  *   node scripts/verify-comment-dm.mjs private-reply <commentId> [button|generic]
@@ -63,6 +64,11 @@ switch (cmd) {
     });
     break;
   }
+  case "subscribed": {
+    const me = await call("GET", "me", { query: { fields: "user_id" } });
+    await call("GET", `${me.user_id}/subscribed_apps`);
+    break;
+  }
   case "comments": {
     const media = await call("GET", "me/media", { query: { fields: "id,caption,media_product_type,timestamp", limit: "3" } });
     for (const m of media.data ?? []) {
@@ -94,5 +100,5 @@ switch (cmd) {
     });
     break;
   default:
-    console.log("Commands: me, subscribe, comments, public-reply, private-reply, follow, link");
+    console.log("Commands: me, subscribe, subscribed, comments, public-reply, private-reply, follow, link");
 }

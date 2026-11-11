@@ -36,6 +36,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ orgId: str
   const token = decryptSecret(pgByteaToBuffer(channel.access_token_ciphertext as unknown as string));
   const igUserId = channel.external_id as string;
 
+  let writeError: string | undefined;
   const results: Array<{ host: string; status: number; body: string }> = [];
   // If the full set of fields is refused on both hosts, retry with "messages" only.
   const wantedFields = igSubscribedFields(channel.granted_scopes as string[] | null);
@@ -55,13 +56,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ orgId: str
           const scopes = scopesAfterSubscribe(granted, fields === wantedFields);
           const commentSubscribeFailed = hasCommentAccess(granted) && !hasCommentAccess(scopes);
           if (commentSubscribeFailed) {
-            await admin.from("channels").update({ granted_scopes: scopes }).eq("id", body.channelId).eq("org_id", orgId);
-            await admin
+            const { error: scopeErr } = await admin
+              .from("channels")
+              .update({ granted_scopes: scopes })
+              .eq("id", body.channelId)
+              .eq("org_id", orgId);
+            const { error: offErr } = await admin
               .from("comment_dm_settings")
               .update({ enabled: false, updated_at: new Date().toISOString() })
-              .eq("channel_id", body.channelId);
+              .eq("channel_id", body.channelId)
+              .eq("org_id", orgId);
+            writeError = scopeErr?.message ?? offErr?.message;
+            if (writeError) console.error("[subscribe-ig] could not drop comment access:", writeError);
+            await admin
+              .from("audit_logs")
+              .insert({
+                org_id: orgId,
+                action: "instagram_comment_subscribe_failed",
+                payload: { channel_id: body.channelId },
+              })
+              .then(() => {});
           }
-          return NextResponse.json({ ok: true, host, fields, result: t, commentSubscribeFailed });
+          return NextResponse.json({ ok: true, host, fields, result: t, commentSubscribeFailed, writeError });
         }
       } catch (err) {
         results.push({ host, status: 0, body: (err as Error).message });
