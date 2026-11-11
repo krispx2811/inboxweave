@@ -7,19 +7,26 @@ import { assertChannelNotOwnedElsewhere } from "@/lib/channels/ownership";
 import { verifyState } from "@/lib/auth/oauth-state";
 import {
   hasCommentAccess,
-  IG_COMMENTS_SCOPE,
   igSubscribedFields,
   parseGrantedScopes,
   requestedIgScopes,
+  scopesAfterSubscribe,
 } from "@/lib/channels/ig-scopes";
 
 export const runtime = "nodejs";
 
-function redirectBack(req: NextRequest, orgId: string, status: string, detail?: string) {
+function redirectBack(
+  req: NextRequest,
+  orgId: string,
+  status: string,
+  detail?: string,
+  extra?: Record<string, string>,
+) {
   const base = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
   const url = new URL(`/app/${orgId}/channels`, base);
   url.searchParams.set("ig", status);
   if (detail) url.searchParams.set("msg", detail);
+  for (const [k, v] of Object.entries(extra ?? {})) url.searchParams.set(k, v);
   return NextResponse.redirect(url);
 }
 
@@ -181,16 +188,14 @@ export async function GET(req: NextRequest) {
         console.log(`[ig oauth] subscribe (${host}) threw:`, (err as Error).message);
       }
     }
-    if (subscribeInfo.startsWith(" — subscribed")) break;
+    if (subscribedWith) break;
   }
 
   // Comment access only counts if the comment fields really got subscribed: otherwise
   // Comment to DM could be turned on and never receive a comment.
   const commentPermitted = hasCommentAccess(permittedScopes);
   const commentSubscribeFailed = commentPermitted && subscribedWith !== wantedFields;
-  const grantedScopes = commentSubscribeFailed
-    ? permittedScopes.filter((s) => s !== IG_COMMENTS_SCOPE)
-    : permittedScopes;
+  const grantedScopes = scopesAfterSubscribe(permittedScopes, subscribedWith === wantedFields) ?? permittedScopes;
 
   // ── Step 5: persist channel ─────────────────────────────────────────
   const admin = createSupabaseAdminClient();
@@ -222,17 +227,27 @@ export async function GET(req: NextRequest) {
   const channelId = saved.id as string;
 
   // Without comment access Comment to DM can't work: switch it off so its page says why.
+  let turnedOff = false;
   if (!hasCommentAccess(grantedScopes)) {
-    await admin
+    const { data: switched } = await admin
       .from("comment_dm_settings")
       .update({ enabled: false, updated_at: new Date().toISOString() })
-      .eq("channel_id", channelId);
+      .eq("channel_id", channelId)
+      .eq("enabled", true)
+      .select("channel_id");
+    turnedOff = (switched?.length ?? 0) > 0;
   }
 
   await admin.from("audit_logs").insert({
     org_id: orgId,
     action: "instagram_connected",
-    payload: { username: username ?? null, user_id: igUserId, scopes: grantedScopes },
+    payload: {
+      username: username ?? null,
+      user_id: igUserId,
+      scopes: grantedScopes,
+      permitted_scopes: permittedScopes,
+      comment_subscribe_failed: commentSubscribeFailed,
+    },
   }).then(() => {});
 
   if (decoded.returnTo === "comment-dm") {
@@ -250,5 +265,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return redirectBack(req, orgId, "success", username ? `@${username}` : `user ${igUserId}`);
+  return redirectBack(
+    req,
+    orgId,
+    "success",
+    username ? `@${username}` : `user ${igUserId}`,
+    turnedOff ? { cdm: "off" } : undefined,
+  );
 }

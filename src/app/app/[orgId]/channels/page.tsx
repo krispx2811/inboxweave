@@ -37,11 +37,11 @@ export default async function ChannelsPage({
   searchParams,
 }: {
   params: Promise<{ orgId: string }>;
-  searchParams: Promise<{ fb?: string; ig?: string; msg?: string }>;
+  searchParams: Promise<{ fb?: string; ig?: string; msg?: string; cdm?: string }>;
 }) {
   const { orgId } = await params;
   const ctx = await requireOrgMember(orgId);
-  const { fb, ig, msg } = await searchParams;
+  const { fb, ig, msg, cdm } = await searchParams;
   const admin = createSupabaseAdminClient();
   const [{ data: channels }, { data: metaSettings }, { data: commentDmRows }] = await Promise.all([
     admin
@@ -111,6 +111,12 @@ export default async function ChannelsPage({
       {ig === "success" && (
         <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <strong>Instagram connected.</strong> {msg ? `Linked ${msg}.` : ""}
+        </div>
+      )}
+      {cdm === "off" && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Comment to DM was turned off because this connection doesn&apos;t have comment access. Open Comment to DM on
+          the Instagram card to reconnect it.
         </div>
       )}
       {ig === "error" && (

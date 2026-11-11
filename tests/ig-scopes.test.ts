@@ -7,6 +7,7 @@ import {
   parseGrantedScopes,
   pickIgAppId,
   requestedIgScopes,
+  scopesAfterSubscribe,
 } from "../src/lib/channels/ig-scopes.ts";
 
 test("reads granted scopes as an array or a comma-separated string", () => {
@@ -63,4 +64,13 @@ test("picks the org's Instagram app, then its legacy app, then the platform's", 
   assert.equal(pickIgAppId({ ig_app_id: null, app_id: "legacy" }, "env"), "legacy");
   assert.equal(pickIgAppId(null, "env"), "env");
   assert.equal(pickIgAppId({ ig_app_id: null, app_id: null }, undefined), undefined);
+});
+
+test("comment access is dropped only when the comment fields were not subscribed", () => {
+  const base = ["instagram_business_basic", "instagram_business_manage_messages"];
+  const withComments = [...base, "instagram_business_manage_comments"];
+  assert.equal(scopesAfterSubscribe(null, false), null);
+  assert.deepEqual(scopesAfterSubscribe(base, false), base);
+  assert.deepEqual(scopesAfterSubscribe(withComments, true), withComments);
+  assert.deepEqual(scopesAfterSubscribe(withComments, false), base);
 });

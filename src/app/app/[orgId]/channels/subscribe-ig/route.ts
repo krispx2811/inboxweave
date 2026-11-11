@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireOrgMember } from "@/lib/auth/guards";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, pgByteaToBuffer } from "@/lib/crypto/secrets";
-import { igSubscribedFields } from "@/lib/channels/ig-scopes";
+import { hasCommentAccess, igSubscribedFields, scopesAfterSubscribe } from "@/lib/channels/ig-scopes";
 
 export const runtime = "nodejs";
 
@@ -49,7 +49,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ orgId: str
         const r = await fetch(url.toString(), { method: "POST" });
         const t = await r.text();
         results.push({ host, status: r.status, body: t.slice(0, 300) });
-        if (r.ok) return NextResponse.json({ ok: true, host, fields, result: t });
+        if (r.ok) {
+          // Comment access only counts if the comment fields were really subscribed.
+          const granted = channel.granted_scopes as string[] | null;
+          const scopes = scopesAfterSubscribe(granted, fields === wantedFields);
+          const commentSubscribeFailed = hasCommentAccess(granted) && !hasCommentAccess(scopes);
+          if (commentSubscribeFailed) {
+            await admin.from("channels").update({ granted_scopes: scopes }).eq("id", body.channelId).eq("org_id", orgId);
+            await admin
+              .from("comment_dm_settings")
+              .update({ enabled: false, updated_at: new Date().toISOString() })
+              .eq("channel_id", body.channelId);
+          }
+          return NextResponse.json({ ok: true, host, fields, result: t, commentSubscribeFailed });
+        }
       } catch (err) {
         results.push({ host, status: 0, body: (err as Error).message });
       }

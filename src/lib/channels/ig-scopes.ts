@@ -26,6 +26,18 @@ export function igSubscribedFields(scopes: readonly string[] | null | undefined)
   return hasCommentAccess(scopes) ? "messages,comments,messaging_postbacks" : "messages";
 }
 
+/**
+ * The scopes to save after the webhook subscription. Comment access only counts
+ * when the comment fields were actually subscribed.
+ */
+export function scopesAfterSubscribe(
+  permitted: string[] | null,
+  commentFieldsSubscribed: boolean,
+): string[] | null {
+  if (!permitted || commentFieldsSubscribed || !hasCommentAccess(permitted)) return permitted;
+  return permitted.filter((s) => s !== IG_COMMENTS_SCOPE);
+}
+
 export function buildIgLoginUrl(params: {
   appId: string;
   appUrl: string;
